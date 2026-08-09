@@ -66,12 +66,39 @@ class FuelRequest(models.Model):
             COMPLETED = "COMPLETED", "Completed"
 
     request_number = models.CharField(max_length=20, unique=True)
-    truck = models.ForeignKey("Truck", on_delete=PROTECT,related_name="fuel_request")
-    
-
+    driver = models.ForeignKey(settings.AUTH_USER_MODEL,on_delete=models.PROTECT, limit_choices_to={"role":"DRIVER"}, related_name="fuel_requests") #It prevents deletion of a record if it is being referenced by another model.
+    truck = models.ForeignKey("Truck", on_delete= models.PROTECT, related_name="fuel_request")
+    pump = models.ForeignKey("pump" ,on_delete=models.PROTECT, related_name="fuel_request")
+    fuel_type = models.CharField(max_length=10, choices=FuelType.choices)
+    request_liters =models.DecimalField(max_length=6, decimal_places=2)
+    approvead_litters = models.DecimalField(max_digits=6, decimal_places=2, null =True, blank= True)
+    operator = models.ForeignKey(settings.AUTH_USER_MODEL)
 
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+
+
+
+class VechileVerificatoin(models.Model):
+    class VerificationMethod(models.TextChoices):
+        OCR ="OCR","ocr"
+        MANUAL = "MANUAL", "Manual"
+
+
+    class Verificaitonstatus(models.TextChoices):
+        PENDING = "PENDING", "Pending"
+        VERIFIED ="VERIFIED", "Verified"
+        FAILED = "FAILED","Failed"
+
+    fuel_request = models.OneToOneField("FuelRequest", on_delete=models.CASCADE, related_name="vechile_verification")
+    vichle_image = models.ImageField(upload_to="vichle_verification/", null=True, blank= True)
+    ocr_number = models.CharField(max_length=20, null=True,blank=True)
+    Verificaiton_method = models.CharField(max_length=10,choices=VerificationMethod,null=True, blank=True)
+    status = models.CharField(max_length=10, choices=Verificaitonstatus, default=Verificaitonstatus.PENDING)
+    verified_by =models.ForeignKey(settings.AUTH_USER_MODEL, on_delete = models.SET_NULL, null = True, blank=True, limit_choices_to={"role":"OPERATOR"}, related_name="vichle_verifications")
+    verified_at = models.CharField(null = True, blank=True)
+    failure_reason = models.CharField(max_length=255, blank= True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
     
-        
