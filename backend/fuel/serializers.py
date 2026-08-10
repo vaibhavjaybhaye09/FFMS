@@ -1,6 +1,46 @@
 from rest_framework import serializers
-from django.contrib.auth import authenticate
-from .models import (User, Pump, Truck, FuelRequest, VechileVerificatoin, )
+from django.contrib.auth import authenticate, get_user_model
+from .models import User, Pump, Truck, FuelRequest, VehicleVerification
+from rest_framework.validators import UniqueValidator
+
+
+User = get_user_model()
+
+class RegisterSerializer(serializers.ModelSerializer):
+    mobile_number = serializers.CharField(
+        validators=[UniqueValidator(queryset=User.objects.all(), message="A user with this mobile number already exists.")]
+    )
+
+    class Meta:
+        model = User
+        fields = ['mobile_number', 'password', 'username', 'first_name', 'role']
+
+    def validate_mobile_number(self, value):
+        if User.objects.filter(mobile_number_=value).exists():
+            raise serializers.ValidationError("Mobile number is already registered.")
+        return value
+    def validate_role(self,value):
+        allowed_roles =[
+            User.Role.DRIVER,
+            User.Role.OPERATOR,
+        ]
+        if value not in allowed_roles:
+            raise serializers.ValidationError("Only Driver Or Operator registration is allowed.")
+        return value
+
+    def create(self, validated_data):
+        password = validated_data.pop("password")
+
+        mobile_number =validated_data["Mobile_number"]
+        user = user(
+            username= f"user_{mobile_number}",
+            **validated_data
+        )
+        user.set_password(password)
+        user.approval_status =User.Approvalstatus.PENDING
+        user.is_active = False
+        user.save()
+        return user
 
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
@@ -33,7 +73,7 @@ class FuelRequestSerializer(serializers.ModelSerializer):
 class VichleVerificationSerializer(serializers.ModelSerializer):
     verified_by_name=serializers.CharField(source ="verified_by.first_name", read_only = True)
     class Meta:
-        model = VechileVerificatoin
+        model = VehicleVerification
         fields = [
             "id",
             "fuel_request",
