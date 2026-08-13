@@ -158,3 +158,31 @@ PENDING
       Manual Match
           ↓
        APPROVED
+
+                    Django API
+                        │
+             ┌──────────┴──────────┐
+             │                     │
+          DRIVER                OPERATOR
+             │                     │
+             ▼                     ▼
+          Login                  Login
+             │                     │
+             ▼                     ▼
+       Create Request        Pending Requests
+             │                     │
+             │                     ▼
+             │              Take Plate Photo
+             │                     │
+             │                     ▼
+             │                   OCR
+             │              ┌──────┴──────┐
+             │              │             │
+             │            MATCH        OCR FAIL
+             │              │             │
+             │              ▼          Manual
+             │           APPROVED       Verify
+             │                            │
+             └──────────────┬─────────────┘
+                            ▼
+                       Fuel Approved

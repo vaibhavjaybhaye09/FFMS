@@ -822,3 +822,213 @@ class ManualVerifyFuelRequestAPIView(APIView):
             },
             status=status.HTTP_200_OK
         )
+
+
+# ============================================================
+# PUMP UPDATE
+# ============================================================
+
+class PumpUpdateAPIView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def put(self, request, pump_id):
+        # Only ADMIN can update pump
+        if request.user.role != User.Role.ADMIN:
+            return Response(
+                {"error": "Only admin can update a pump."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        pump = get_object_or_404(Pump, id=pump_id)
+        serializer = PumpSerializer(pump, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        pump = serializer.save()
+
+        return Response(
+            {
+                "message": "Pump updated successfully.",
+                "pump": PumpSerializer(pump).data
+            },
+            status=status.HTTP_200_OK
+        )
+
+
+# ============================================================
+# PUMP DELETE
+# ============================================================
+
+class PumpDeleteAPIView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def delete(self, request, pump_id):
+        # Only ADMIN can delete pump
+        if request.user.role != User.Role.ADMIN:
+            return Response(
+                {"error": "Only admin can delete a pump."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        pump = get_object_or_404(Pump, id=pump_id)
+        pump_name = pump.name
+        pump.delete()
+
+        return Response(
+            {
+                "message": f"Pump '{pump_name}' deleted successfully."
+            },
+            status=status.HTTP_200_OK
+        )
+
+
+# ============================================================
+# TRUCK UPDATE
+# ============================================================
+
+class TruckUpdateAPIView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def put(self, request, truck_id):
+        # Only ADMIN can update truck
+        if request.user.role != User.Role.ADMIN:
+            return Response(
+                {"error": "Only admin can update a truck."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        truck = get_object_or_404(Truck, id=truck_id)
+        serializer = TruckSerializer(truck, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        truck = serializer.save()
+
+        return Response(
+            {
+                "message": "Truck updated successfully.",
+                "truck": TruckSerializer(truck).data
+            },
+            status=status.HTTP_200_OK
+        )
+
+
+# ============================================================
+# TRUCK DELETE
+# ============================================================
+
+class TruckDeleteAPIView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def delete(self, request, truck_id):
+        # Only ADMIN can delete truck
+        if request.user.role != User.Role.ADMIN:
+            return Response(
+                {"error": "Only admin can delete a truck."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        truck = get_object_or_404(Truck, id=truck_id)
+        truck_number = truck.truck_number
+        truck.delete()
+
+        return Response(
+            {
+                "message": f"Truck '{truck_number}' deleted successfully."
+            },
+            status=status.HTTP_200_OK
+        )
+
+
+# ============================================================
+# FUEL REQUEST UPDATE
+# ============================================================
+
+class FuelRequestUpdateAPIView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def put(self, request, fuel_request_id):
+        fuel_request = get_object_or_404(FuelRequest, id=fuel_request_id)
+
+        # Driver can only update their own pending requests
+        if request.user.role == User.Role.DRIVER:
+            if fuel_request.driver_id != request.user.id:
+                return Response(
+                    {"error": "You can only update your own fuel requests."},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+            if fuel_request.status != FuelRequest.Status.PENDING:
+                return Response(
+                    {"error": "Can only update pending fuel requests."},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+        # Operator can update approval details
+        elif request.user.role == User.Role.OPERATOR:
+            if fuel_request.operator_id != request.user.id:
+                return Response(
+                    {"error": "You can only update requests assigned to you."},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+
+        # Admin can update anything
+        elif request.user.role != User.Role.ADMIN:
+            return Response(
+                {"error": "You do not have permission to update fuel requests."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        serializer = FuelRequestSerializer(fuel_request, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        fuel_request = serializer.save()
+
+        return Response(
+            {
+                "message": "Fuel request updated successfully.",
+                "fuel_request": FuelRequestSerializer(fuel_request).data
+            },
+            status=status.HTTP_200_OK
+        )
+
+
+# ============================================================
+# FUEL REQUEST DELETE
+# ============================================================
+
+class FuelRequestDeleteAPIView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def delete(self, request, fuel_request_id):
+        fuel_request = get_object_or_404(FuelRequest, id=fuel_request_id)
+
+        # Driver can only delete their own pending requests
+        if request.user.role == User.Role.DRIVER:
+            if fuel_request.driver_id != request.user.id:
+                return Response(
+                    {"error": "You can only delete your own fuel requests."},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+            if fuel_request.status != FuelRequest.Status.PENDING:
+                return Response(
+                    {"error": "Can only delete pending fuel requests."},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+        # Only admin can delete approved/completed requests
+        elif request.user.role != User.Role.ADMIN:
+            return Response(
+                {"error": "Only admin can delete fuel requests."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        request_number = fuel_request.request_number
+        fuel_request.delete()
+
+        return Response(
+            {
+                "message": f"Fuel request '{request_number}' deleted successfully."
+            },
+            status=status.HTTP_200_OK
+        )
