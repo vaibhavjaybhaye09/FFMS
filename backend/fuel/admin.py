@@ -123,7 +123,6 @@ class PumpAdmin(admin.ModelAdmin):
         "code",
         "name",
         "city",
-        "operator",
         "is_active",
     )
 
@@ -174,7 +173,7 @@ class FuelRequestAdmin(admin.ModelAdmin):
         "pump",
         "fuel_type",
         "status",
-        "request_at",
+        "created_at",
     )
 
     list_filter = (

@@ -1,0 +1,160 @@
+                    ADMIN
+                      │
+          ┌───────────┴───────────┐
+          │                       │
+       PUMPS                    TRUCKS
+          │                       │
+    Create Pump              Create Truck
+          │                       │
+          ▼                       ▼
+ Assign Operators             Assign Driver
+          │                       │
+     ┌────┼────┐                  │
+     ▼    ▼    ▼                  ▼
+   OP-1 OP-2 OP-3               DRIVER-1
+     │    │    │
+     └────┴────┘
+          │
+       PUMP-1
+
+                 USER
+                  │
+        ┌─────────┴─────────┐
+        │                   │
+    OPERATOR              DRIVER
+        │                   │
+        │                   │
+        ▼                   ▼
+   PumpOperator            Truck
+        │                   │
+        ▼                   │
+       Pump                 │
+                            │
+                            ▼
+                          Truck
+
+
+                 DRIVER
+                    │
+                    │ POST /fuel-requests/
+                    ▼
+             ┌──────────────┐
+             │ FuelRequest  │
+             └──────┬───────┘
+                    │
+        ┌───────────┼───────────┐
+        ▼           ▼           ▼
+      Driver       Truck       Pump
+        │           │           │
+        │           │           └── Operators
+        │           │
+        │           └── belongs to Driver
+        │
+        ▼
+      PENDING
+        │
+        ▼
+   PUMP OPERATOR
+        │
+    Approve/Reject
+        │
+        ▼
+    APPROVED
+        │
+        ▼
+   Vehicle Verification
+        │
+        ▼
+     VERIFIED
+        │
+        ▼
+     COMPLETED
+
+
+Driver
+  │
+  │ Create request
+  ▼
+Pump 01
+  │
+  ├── Operator A
+  ├── Operator B
+  └── Operator C
+          │
+          ▼
+    Pending request
+          │
+          ▼
+ Operator accepts request
+          │
+          ▼
+ operator = Operator B
+ status = APPROVED
+
+
+
+                 FuelRequest
+                      │
+          ┌───────────┴───────────┐
+          │                       │
+          ▼                       ▼
+CreateFuelRequestSerializer   FuelRequestSerializer
+          │                       │
+          │                       │
+       INPUT                    OUTPUT
+          │                       │
+          ▼                       ▼
+   Driver submits            API returns
+   allowed fields            complete details
+
+
+
+Driver creates Fuel Request
+          ↓
+       PENDING
+          ↓
+Pump Operator opens request
+          ↓
+Take/upload number-plate photo
+          ↓
+        OCR
+          │
+     ┌────┴─────┐
+     │          │
+  OCR works   OCR fails
+     │          │
+     ↓          ↓
+Compare      System says
+plate        MANUAL REQUIRED
+     │          │
+ ┌───┴───┐      ↓
+ │       │   Operator enters
+MATCH  MISMATCH manual number
+ │       │       │
+ ↓       ↓       ↓
+APPROVE FAILED   compare
+         RETRY     │
+                   ↓
+                MATCH
+                   ↓
+                APPROVE
+
+PENDING
+   │
+   ├── OCR MATCH
+   │      ↓
+   │   APPROVED
+   │
+   ├── OCR MISMATCH
+   │      ↓
+   │   Verification FAILED
+   │      ↓
+   │   Retry
+   │
+   └── OCR FAILED
+          ↓
+     MANUAL_REQUIRED
+          ↓
+      Manual Match
+          ↓
+       APPROVED

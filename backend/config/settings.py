@@ -25,7 +25,7 @@ SECRET_KEY = 'django-insecure-a7s0(u6p$9)-s)3qo*&@xer#c_o)qw9l7k032lpa6k4k@h3u&f
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = ["*"]
 
 
 # Application definition
@@ -40,6 +40,7 @@ INSTALLED_APPS = [
     'fuel',
     'rest_framework',
     'rest_framework_simplejwt',
+    'rest_framework_simplejwt.token_blacklist',
 ]
 
 MIDDLEWARE = [
@@ -130,3 +131,8 @@ STATIC_URL = 'static/'
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 AUTH_USER_MODEL = "fuel.User"
+
+# Prevent Django from redirecting POST requests without trailing slash.
+# Clients can still use trailing-slash URLs; this avoids RuntimeError on POST
+# when URLs are called without the trailing slash.
+APPEND_SLASH = False

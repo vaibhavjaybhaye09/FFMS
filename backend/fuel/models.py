@@ -122,6 +122,10 @@ class User(AbstractBaseUser):
     def has_module_perms(self, app_label):
         return self.is_superuser
 
+    def get_full_name(self):
+        """Return the user's full name (first + last)."""
+        return f"{self.first_name} {self.last_name}".strip()
+
 
 # ============================================================
 # PUMP
@@ -149,13 +153,11 @@ class Pump(models.Model):
         blank=True
     )
 
-    operator = models.ForeignKey(
+    operators = models.ManyToManyField(
         settings.AUTH_USER_MODEL,
-        on_delete=models.SET_NULL,
-        null=True,
+        through="PumpOperator",
+        related_name="assigned_pumps",
         blank=True,
-        limit_choices_to={"role": User.Role.OPERATOR},
-        related_name="assigned_pumps"
     )
 
     is_active = models.BooleanField(
@@ -174,10 +176,38 @@ class Pump(models.Model):
         return f"{self.code} - {self.name}"
 
 
-# ============================================================
-# TRUCK
-# ============================================================
+class PumpOperator(models.Model):
 
+    pump = models.ForeignKey(
+        Pump,
+        on_delete=models.CASCADE,
+        related_name="pump_operators"
+    )
+
+    operator = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="pump_assignment",
+        limit_choices_to={
+            "role": User.Role.OPERATOR
+        }
+    )
+
+    assigned_at = models.DateTimeField(
+        auto_now_add=True
+    )
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["operator"],
+                name="unique_operator_one_pump"
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.pump.code} - {self.operator}"
+    
 class Truck(models.Model):
 
     class FuelType(models.TextChoices):
