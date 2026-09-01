@@ -1,6 +1,45 @@
+from django import forms
 from django.contrib import admin
 from .models import User, Pump, Truck, FuelRequest, VehicleVerification, PumpOperator
 
+
+class PumpAdminForm(forms.ModelForm):
+    operators_field = forms.ModelMultipleChoiceField(
+        queryset=User.objects.filter(role=User.Role.OPERATOR),
+        widget=forms.CheckboxSelectMultiple,
+        required=False,
+        label="Operators"
+    )
+
+    class Meta:
+        model = Pump
+        fields = "__all__"
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if self.instance and self.instance.pk:
+            self.fields["operators_field"].initial = self.instance.operators.all()
+
+    def save(self, commit=True):
+        pump = super().save(commit=False)
+        if commit:
+            pump.save()
+        if pump.pk:
+            selected_operators = self.cleaned_data.get("operators_field", [])
+            # Update PumpOperators
+            existing_operator_ids = set(pump.operators.values_list("id", flat=True))
+            selected_operator_ids = set(op.id for op in selected_operators)
+
+            to_add = selected_operator_ids - existing_operator_ids
+            to_remove = existing_operator_ids - selected_operator_ids
+
+            if to_remove:
+                PumpOperator.objects.filter(pump=pump, operator_id__in=to_remove).delete()
+            
+            for op_id in to_add:
+                PumpOperator.objects.create(pump=pump, operator_id=op_id)
+                
+        return pump
 
 @admin.register(User)
 class UserAdmin(admin.ModelAdmin):
@@ -139,18 +178,9 @@ class UserAdmin(admin.ModelAdmin):
     deactivate_users.short_description = "Deactivate selected users"
 
 
-class PumpOperatorInline(admin.TabularInline):
-    model = PumpOperator
-    extra = 1
-    raw_id_fields = ("operator",)
-    readonly_fields = ("assigned_at",)
-    fields = ("operator", "assigned_at")
-    verbose_name = "Operator"
-    verbose_name_plural = "Operators"
-
-
 @admin.register(Pump)
 class PumpAdmin(admin.ModelAdmin):
+    form = PumpAdminForm
 
     list_display = (
         "id",
@@ -180,10 +210,6 @@ class PumpAdmin(admin.ModelAdmin):
         "updated_at",
     )
 
-    inlines = [
-        PumpOperatorInline,
-    ]
-
     fieldsets = (
         (
             "Pump Information",
@@ -194,6 +220,14 @@ class PumpAdmin(admin.ModelAdmin):
                     "address",
                     "city",
                     "contact_number",
+                )
+            },
+        ),
+        (
+            "Operators",
+            {
+                "fields": (
+                    "operators_field",
                 )
             },
         ),

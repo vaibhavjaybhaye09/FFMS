@@ -3,6 +3,7 @@ import re
 # Optional: pytesseract for OCR features
 try:
     import pytesseract
+    pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
     PYTESSERACT_AVAILABLE = True
 except ImportError:
     PYTESSERACT_AVAILABLE = False

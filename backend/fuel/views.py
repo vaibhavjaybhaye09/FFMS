@@ -47,7 +47,9 @@ class LoginAPIView(APIView):
                     "id": user.id,
                     "employee_id": user.employee_id,
                     "name": user.get_full_name(),
+                    "mobile_number": user.mobile_number,
                     "role": user.role,
+                    "approval_status": user.approval_status,
                 },
                 "tokens": {
                     "refresh": str(refresh),
@@ -268,6 +270,143 @@ class AssignDriverToTruckAPIView(APIView):
         )
 
 # ============================================================
+# PUMP LIST (for driver's pump dropdown)
+# ============================================================
+
+class PumpListAPIView(APIView):
+
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+
+        pumps = Pump.objects.filter(
+            is_active=True
+        ).order_by("name")
+
+        return Response(
+            {
+                "pumps": PumpSerializer(
+                    pumps, many=True
+                ).data
+            },
+            status=status.HTTP_200_OK
+        )
+
+
+# ============================================================
+# MY TRUCK (driver's assigned truck)
+# ============================================================
+
+class MyTruckAPIView(APIView):
+
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+
+        if request.user.role != User.Role.DRIVER:
+            return Response(
+                {
+                    "error": "Only drivers have an assigned truck."
+                },
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        truck = Truck.objects.filter(
+            driver=request.user
+        ).first()
+
+        if not truck:
+            return Response(
+                {
+                    "truck": None,
+                    "message": "No truck assigned yet."
+                },
+                status=status.HTTP_200_OK
+            )
+
+        return Response(
+            {
+                "truck": TruckSerializer(truck).data
+            },
+            status=status.HTTP_200_OK
+        )
+
+# ============================================================
+# MY PUMP (operator's assigned pump)
+# ============================================================
+
+class MyPumpAPIView(APIView):
+
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+
+        if request.user.role != User.Role.OPERATOR:
+            return Response(
+                {
+                    "error": "Only operators have an assigned pump."
+                },
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        if hasattr(request.user, "pump_assignment"):
+            pump = request.user.pump_assignment.pump
+            return Response(
+                {
+                    "pump": PumpSerializer(pump).data
+                },
+                status=status.HTTP_200_OK
+            )
+
+        return Response(
+            {
+                "pump": None,
+                "message": "No pump assigned yet."
+            },
+            status=status.HTTP_200_OK
+        )
+
+
+# ============================================================
+# MY FUEL REQUESTS (driver's own request history)
+# ============================================================
+
+class MyFuelRequestsAPIView(APIView):
+
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+
+        if request.user.role != User.Role.DRIVER:
+            return Response(
+                {
+                    "error": "Only drivers can view their own fuel requests."
+                },
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        fuel_requests = (
+            FuelRequest.objects
+            .filter(driver=request.user)
+            .select_related("truck", "pump", "operator")
+            .order_by("-created_at")
+        )
+
+        return Response(
+            {
+                "fuel_requests": FuelRequestSerializer(
+                    fuel_requests, many=True
+                ).data
+            },
+            status=status.HTTP_200_OK
+        )
+
+
+# ============================================================
 # CREATE FUEL REQUEST
 class CreateFuelRequestAPIView(APIView):
 
@@ -353,8 +492,7 @@ class VerifyFuelRequestVehicleAPIView(APIView):
         # 4. CHECK PUMP OPERATOR
         # ====================================================
 
-        # Current Pump model has ONE operator ForeignKey.
-        if fuel_request.pump.operator_id != operator.id:
+        if not hasattr(operator, "pump_assignment") or operator.pump_assignment.pump_id != fuel_request.pump_id:
 
             return Response(
                 {
@@ -659,7 +797,7 @@ class ManualVerifyFuelRequestAPIView(APIView):
         # 4. CHECK PUMP OPERATOR
         # ====================================================
 
-        if fuel_request.pump.operator_id != operator.id:
+        if not hasattr(operator, "pump_assignment") or operator.pump_assignment.pump != fuel_request.pump:
 
             return Response(
                 {
@@ -1029,6 +1167,41 @@ class FuelRequestDeleteAPIView(APIView):
         return Response(
             {
                 "message": f"Fuel request '{request_number}' deleted successfully."
+            },
+            status=status.HTTP_200_OK
+        )
+
+# ============================================================
+# OPERATOR PUMP REQUESTS
+# ============================================================
+
+class OperatorPumpRequestsAPIView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        if request.user.role != User.Role.OPERATOR:
+            return Response(
+                {"error": "Only operators can view their pump's fuel requests."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        try:
+            pump = request.user.pump_assignment.pump
+        except Exception:
+            return Response(
+                {"fuel_requests": [], "message": "You are not assigned to any pump."},
+                status=status.HTTP_200_OK
+            )
+
+        fuel_requests = FuelRequest.objects.filter(
+            pump=pump,
+            status=FuelRequest.Status.PENDING
+        ).select_related("driver", "truck", "pump").order_by("-created_at")
+
+        return Response(
+            {
+                "fuel_requests": FuelRequestSerializer(fuel_requests, many=True).data
             },
             status=status.HTTP_200_OK
         )

@@ -186,3 +186,21 @@ PENDING
              └──────────────┬─────────────┘
                             ▼
                        Fuel Approved
+
+
+
+
+
+
+
+
+
+
+sample RegistraionAPIView
+
+                       {
+    "mobile_number": "1111122222", 
+    "password": "securepassword123",
+    "first_name": "Alex",
+    "role": "manager"
+}
