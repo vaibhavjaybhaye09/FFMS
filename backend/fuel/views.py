@@ -5,7 +5,7 @@ from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework_simplejwt.tokens import RefreshToken, TokenError
 from .serializers import LoginSerializers, RegisterSerializer, TruckSerializer, PumpSerializer, AssignDriverSerializer, AssignOperatorSerializer, CreateFuelRequestSerializer, FuelRequestSerializer, VehicleVerificationSerializer, VehicleVerificationRequestSerializer
-from .ocr import extract_number_plate, normalize_plate_number
+from .ocr import extract_number_plate, normalize_plate_number, fuzzy_plate_match
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework.decorators import api_view
 from .models import User, Pump, Truck, PumpOperator, VehicleVerification, FuelRequest
@@ -640,8 +640,21 @@ class VerifyFuelRequestVehicleAPIView(APIView):
         # ====================================================
         # 10. COMPARE NUMBER
         # ====================================================
+        #
+        # Exact match is preferred. If it isn't exact, allow a small,
+        # narrowly-scoped amount of tolerance for common OCR look-alike
+        # misreads (0/O, 1/I, 1/L, 5/S, 8/B, 2/Z, 6/G) — at most one
+        # differing character, and only if that character is a known
+        # look-alike pair. This is NOT a general fuzzy match: two
+        # genuinely different plates (e.g. sequential registrations)
+        # will still fail, since an arbitrary character difference isn't
+        # a recognized look-alike pair.
 
-        if detected_number != expected_number:
+        is_match, mismatch_count = fuzzy_plate_match(
+            detected_number, expected_number
+        )
+
+        if not is_match:
 
             # OCR successfully worked,
             # but detected vehicle is wrong.
@@ -678,7 +691,7 @@ class VerifyFuelRequestVehicleAPIView(APIView):
             )
 
         # ====================================================
-        # 11. NUMBER MATCHED
+        # 11. NUMBER MATCHED (exactly, or via look-alike tolerance)
         # ====================================================
 
         verification.status = (
@@ -686,7 +699,18 @@ class VerifyFuelRequestVehicleAPIView(APIView):
         )
 
         verification.verified_at = timezone.now()
-        verification.failure_reason = ""
+
+        if mismatch_count:
+            # Matched only after tolerating look-alike character(s) —
+            # keep this visible in the audit trail rather than silently
+            # treating it the same as a clean exact read.
+            verification.failure_reason = (
+                f"Auto-approved via OCR look-alike tolerance "
+                f"({mismatch_count} character(s)). "
+                f"Expected {expected_number}, read {detected_number}."
+            )
+        else:
+            verification.failure_reason = ""
 
         verification.save()
 
@@ -726,6 +750,10 @@ class VerifyFuelRequestVehicleAPIView(APIView):
                 "message": (
                     "Vehicle verified successfully "
                     "and fuel request approved."
+                    if not mismatch_count else
+                    "Vehicle verified and fuel request approved "
+                    "(OCR read had a minor look-alike character "
+                    "mismatch, auto-corrected)."
                 ),
                 "fuel_request_id": fuel_request.id,
                 "request_number": (
@@ -734,6 +762,7 @@ class VerifyFuelRequestVehicleAPIView(APIView):
                 "vehicle": {
                     "expected_number": expected_number,
                     "ocr_number": detected_number,
+                    "ocr_auto_corrected": bool(mismatch_count),
                 },
                 "verification": (
                     VehicleVerificationSerializer(
