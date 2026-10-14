@@ -6,14 +6,32 @@ import {
   ScrollView,
   ActivityIndicator,
   TouchableOpacity,
+  SafeAreaView,
+  StatusBar,
 } from 'react-native';
 import { useRouter } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
 import apiClient from '../src/api/client';
 import { getUser, removeToken } from '../src/storage/token';
 
+const C = {
+  night: '#0B1220',
+  nightCard: '#121C30',
+  nightCardElevated: '#17243D',
+  nightBorder: '#1E2E4A',
+  blue: '#1565C0',
+  neon: '#00B8FF',
+  yellow: '#FFC928',
+  white: '#FFFFFF',
+  red: '#E53935',
+  green: '#00C853',
+  textSub: '#8FA3BF',
+  textMuted: '#526685',
+};
+
 export default function OperatorProfileScreen() {
-  const [profile, setProfile] = useState(null);
-  const [pump, setPump] = useState(null);
+  const [profile, setProfile] = useState<any>(null);
+  const [pump, setPump] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const router = useRouter();
 
@@ -32,7 +50,7 @@ export default function OperatorProfileScreen() {
       try {
         const response = await apiClient.get('/api/my-pump/');
         setPump(response.data?.pump || null);
-      } catch (error) {
+      } catch (error: any) {
         console.error('Error loading pump:', error.message);
         setPump(null);
       }
@@ -51,160 +69,228 @@ export default function OperatorProfileScreen() {
   if (loading) {
     return (
       <View style={styles.loadingWrap}>
-        <ActivityIndicator size="large" color="#2563eb" />
+        <ActivityIndicator size="large" color={C.neon} />
       </View>
     );
   }
 
   return (
-    <ScrollView contentContainerStyle={styles.container}>
-      <View style={styles.card}>
-        <Text style={styles.avatar}>{(profile?.name || 'O').charAt(0).toUpperCase()}</Text>
-        <Text style={styles.name}>{profile?.name || 'Operator'}</Text>
-        <Text style={styles.role}>Operator</Text>
+    <SafeAreaView style={styles.safeArea}>
+      <StatusBar barStyle="light-content" backgroundColor={C.night} />
+      <View style={styles.neonBar} />
 
-        <View style={styles.infoBox}>
-          <Text style={styles.label}>Employee ID</Text>
-          <Text style={styles.value}>{profile?.employee_id || 'N/A'}</Text>
-        </View>
-
-        <View style={styles.infoBox}>
-          <Text style={styles.label}>Mobile</Text>
-          <Text style={styles.value}>{profile?.mobile_number || 'N/A'}</Text>
-        </View>
-
-        <View style={styles.infoBox}>
-          <Text style={styles.label}>Assigned Pump</Text>
-          {pump ? (
-            <>
-              <Text style={styles.value}>{pump.name} ({pump.code})</Text>
-              <Text style={styles.subValue}>
-                Status: {pump.is_active ? 'Active' : 'Inactive'} • {pump.city}
-              </Text>
-            </>
-          ) : (
-            <Text style={[styles.value, styles.notAssigned]}>Not assigned</Text>
-          )}
-        </View>
-
-        <View style={styles.infoBox}>
-          <Text style={styles.label}>Profile Status</Text>
-          <Text style={[
-            styles.value, 
-            profile?.approval_status === 'APPROVED' ? styles.approved : 
-            profile?.approval_status === 'REJECTED' ? styles.rejected : 
-            styles.pending
-          ]}>
-            {profile?.approval_status || 'APPROVED'}
-          </Text>
-        </View>
-
-        <View style={styles.infoBox}>
-          <Text style={styles.label}>Role</Text>
-          <Text style={styles.value}>{profile?.role || 'OPERATOR'}</Text>
-        </View>
-
-        <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
-          <Text style={styles.logoutText}>Logout</Text>
+      <View style={styles.headerRow}>
+        <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
+          <Ionicons name="arrow-back" size={22} color={C.white} />
         </TouchableOpacity>
+        <Text style={styles.headerTitle}>Operator Profile</Text>
+        <View style={{ width: 40 }} />
       </View>
-    </ScrollView>
+
+      <ScrollView contentContainerStyle={styles.container}>
+        <View style={styles.card}>
+          <View style={styles.avatarWrap}>
+            <Text style={styles.avatarText}>{(profile?.name || 'O').charAt(0).toUpperCase()}</Text>
+          </View>
+          <Text style={styles.name}>{profile?.name || 'Operator'}</Text>
+          <View style={styles.rolePill}>
+            <Text style={styles.roleText}>PUMP DISPENSER OPERATOR</Text>
+          </View>
+
+          <View style={styles.infoBox}>
+            <Text style={styles.label}>Employee ID</Text>
+            <Text style={styles.value}>{profile?.employee_id || 'N/A'}</Text>
+          </View>
+
+          <View style={styles.infoBox}>
+            <Text style={styles.label}>Registered Mobile</Text>
+            <Text style={styles.value}>{profile?.mobile_number || 'N/A'}</Text>
+          </View>
+
+          <View style={styles.infoBox}>
+            <Text style={styles.label}>Station Assignment</Text>
+            {pump ? (
+              <>
+                <Text style={[styles.value, { color: C.yellow }]}>{pump.name} ({pump.code})</Text>
+                <Text style={styles.subValue}>
+                  {pump.city} • {pump.is_active ? 'Station Online' : 'Inactive'}
+                </Text>
+              </>
+            ) : (
+              <Text style={[styles.value, styles.notAssigned]}>No station assigned</Text>
+            )}
+          </View>
+
+          <View style={styles.infoBox}>
+            <Text style={styles.label}>Authorization Status</Text>
+            <Text
+              style={[
+                styles.value,
+                profile?.approval_status === 'APPROVED'
+                  ? styles.approved
+                  : profile?.approval_status === 'REJECTED'
+                  ? styles.rejected
+                  : styles.pending,
+              ]}
+            >
+              {profile?.approval_status || 'APPROVED'}
+            </Text>
+          </View>
+
+          <TouchableOpacity style={styles.logoutButton} onPress={handleLogout} activeOpacity={0.85}>
+            <Ionicons name="log-out-outline" size={20} color={C.white} style={{ marginRight: 8 }} />
+            <Text style={styles.logoutText}>Sign Out</Text>
+          </TouchableOpacity>
+        </View>
+      </ScrollView>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flexGrow: 1,
-    backgroundColor: '#f8fafc',
-    padding: 24,
-    justifyContent: 'center',
+  safeArea: {
+    flex: 1,
+    backgroundColor: C.night,
   },
-  card: {
-    backgroundColor: '#fff',
-    borderRadius: 20,
-    padding: 24,
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
-    elevation: 4,
+  neonBar: {
+    height: 3,
+    backgroundColor: C.neon,
+    shadowColor: C.neon,
+    shadowOpacity: 1,
+    shadowRadius: 8,
+    elevation: 8,
   },
-  avatar: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    backgroundColor: '#2563eb',
-    color: '#fff',
-    fontSize: 28,
-    fontWeight: '700',
-    textAlign: 'center',
-    textAlignVertical: 'center',
-    alignSelf: 'center',
-    marginBottom: 16,
-  },
-  name: {
-    fontSize: 24,
-    fontWeight: '700',
-    textAlign: 'center',
-    color: '#0f172a',
-  },
-  role: {
-    fontSize: 15,
-    color: '#2563eb',
-    textAlign: 'center',
-    marginBottom: 22,
-    fontWeight: '600',
-  },
-  infoBox: {
-    borderBottomWidth: 1,
-    borderBottomColor: '#e2e8f0',
-    paddingVertical: 12,
-  },
-  label: {
-    fontSize: 12,
-    color: '#64748b',
-    marginBottom: 4,
-    fontWeight: '600',
-  },
-  value: {
-    fontSize: 16,
-    color: '#0f172a',
-    fontWeight: '600',
-  },
-  subValue: {
-    fontSize: 13,
-    color: '#64748b',
-    marginTop: 2,
-  },
-  notAssigned: {
-    color: '#dc2626',
-  },
-  approved: {
-    color: '#2563eb',
-  },
-  pending: {
-    color: '#d97706',
-  },
-  rejected: {
-    color: '#dc2626',
-  },
-  logoutButton: {
-    backgroundColor: '#dc2626',
-    borderRadius: 12,
-    paddingVertical: 14,
-    marginTop: 22,
+  headerRow: {
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: C.nightBorder,
   },
-  logoutText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '700',
+  backBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: C.nightCard,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: C.nightBorder,
+  },
+  headerTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: C.white,
+    letterSpacing: 0.5,
   },
   loadingWrap: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    backgroundColor: C.night,
+  },
+  container: {
+    flexGrow: 1,
+    backgroundColor: C.night,
+    padding: 20,
+    justifyContent: 'center',
+  },
+  card: {
+    backgroundColor: C.nightCard,
+    borderRadius: 20,
+    padding: 24,
+    borderWidth: 1,
+    borderColor: C.nightBorder,
+  },
+  avatarWrap: {
+    width: 76,
+    height: 76,
+    borderRadius: 38,
+    backgroundColor: 'rgba(0,184,255,0.12)',
+    borderWidth: 2,
+    borderColor: C.neon,
+    justifyContent: 'center',
+    alignItems: 'center',
+    alignSelf: 'center',
+    marginBottom: 14,
+  },
+  avatarText: {
+    color: C.neon,
+    fontSize: 30,
+    fontWeight: '800',
+  },
+  name: {
+    fontSize: 22,
+    fontWeight: '800',
+    textAlign: 'center',
+    color: C.white,
+  },
+  rolePill: {
+    alignSelf: 'center',
+    backgroundColor: 'rgba(21,101,192,0.16)',
+    borderRadius: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderWidth: 1,
+    borderColor: C.blue,
+    marginTop: 6,
+    marginBottom: 20,
+  },
+  roleText: {
+    fontSize: 11,
+    color: C.neon,
+    fontWeight: '800',
+    letterSpacing: 1.2,
+  },
+  infoBox: {
+    borderBottomWidth: 1,
+    borderBottomColor: C.nightBorder,
+    paddingVertical: 12,
+  },
+  label: {
+    fontSize: 11,
+    color: C.textSub,
+    marginBottom: 4,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+  },
+  value: {
+    fontSize: 15,
+    color: C.white,
+    fontWeight: '600',
+  },
+  subValue: {
+    fontSize: 13,
+    color: C.textSub,
+    marginTop: 3,
+  },
+  notAssigned: {
+    color: C.red,
+  },
+  approved: {
+    color: C.green,
+  },
+  pending: {
+    color: C.yellow,
+  },
+  rejected: {
+    color: C.red,
+  },
+  logoutButton: {
+    flexDirection: 'row',
+    backgroundColor: C.red,
+    borderRadius: 12,
+    paddingVertical: 14,
+    marginTop: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  logoutText: {
+    color: C.white,
+    fontSize: 15,
+    fontWeight: '700',
   },
 });

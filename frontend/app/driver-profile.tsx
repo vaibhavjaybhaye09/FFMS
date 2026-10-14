@@ -6,14 +6,32 @@ import {
   ScrollView,
   ActivityIndicator,
   TouchableOpacity,
+  SafeAreaView,
+  StatusBar,
 } from 'react-native';
 import { useRouter } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
 import apiClient from '../src/api/client';
 import { getUser, removeToken } from '../src/storage/token';
 
+const C = {
+  night: '#0B1220',
+  nightCard: '#121C30',
+  nightCardElevated: '#17243D',
+  nightBorder: '#1E2E4A',
+  blue: '#1565C0',
+  neon: '#00B8FF',
+  yellow: '#FFC928',
+  white: '#FFFFFF',
+  red: '#E53935',
+  green: '#00C853',
+  textSub: '#8FA3BF',
+  textMuted: '#526685',
+};
+
 export default function DriverProfileScreen() {
-  const [profile, setProfile] = useState(null);
-  const [truck, setTruck] = useState(null);
+  const [profile, setProfile] = useState<any>(null);
+  const [truck, setTruck] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const router = useRouter();
 
@@ -32,7 +50,7 @@ export default function DriverProfileScreen() {
       try {
         const response = await apiClient.get('/api/my-truck/');
         setTruck(response.data?.truck || null);
-      } catch (error) {
+      } catch (error: any) {
         console.error('Error loading truck:', error.message);
         setTruck(null);
       }
@@ -51,156 +69,229 @@ export default function DriverProfileScreen() {
   if (loading) {
     return (
       <View style={styles.loadingWrap}>
-        <ActivityIndicator size="large" color="#16a34a" />
+        <ActivityIndicator size="large" color={C.neon} />
       </View>
     );
   }
 
   return (
-    <ScrollView contentContainerStyle={styles.container}>
-      <View style={styles.card}>
-        <Text style={styles.avatar}>{(profile?.name || 'D').charAt(0).toUpperCase()}</Text>
-        <Text style={styles.name}>{profile?.name || 'Driver'}</Text>
-        <Text style={styles.role}>Driver</Text>
+    <SafeAreaView style={styles.safeArea}>
+      <StatusBar barStyle="light-content" backgroundColor={C.night} />
+      <View style={styles.neonBar} />
 
-        <View style={styles.infoBox}>
-          <Text style={styles.label}>Employee ID</Text>
-          <Text style={styles.value}>{profile?.employee_id || 'N/A'}</Text>
-        </View>
-
-        <View style={styles.infoBox}>
-          <Text style={styles.label}>Mobile</Text>
-          <Text style={styles.value}>{profile?.mobile_number || 'N/A'}</Text>
-        </View>
-
-        <View style={styles.infoBox}>
-          <Text style={styles.label}>Assigned Truck</Text>
-          {truck ? (
-            <>
-              <Text style={styles.value}>{truck.truck_number}</Text>
-              <Text style={styles.subValue}>
-                Status: {truck.is_active ? 'Active' : 'Inactive'} • {truck.fuel_type}
-                {truck.capacity_liters ? ` • ${truck.capacity_liters} L capacity` : ''}
-              </Text>
-            </>
-          ) : (
-            <Text style={[styles.value, styles.notAssigned]}>Not assigned</Text>
-          )}
-        </View>
-
-        <View style={styles.infoBox}>
-          <Text style={styles.label}>Profile Status</Text>
-          <Text style={[
-            styles.value, 
-            profile?.approval_status === 'APPROVED' ? styles.approved : 
-            profile?.approval_status === 'REJECTED' ? styles.rejected : 
-            styles.pending
-          ]}>
-            {profile?.approval_status || 'APPROVED'}
-          </Text>
-        </View>
-
-        <View style={styles.infoBox}>
-          <Text style={styles.label}>Role</Text>
-          <Text style={styles.value}>{profile?.role || 'DRIVER'}</Text>
-        </View>
-
-        <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
-          <Text style={styles.logoutText}>Logout</Text>
+      <View style={styles.headerRow}>
+        <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
+          <Ionicons name="arrow-back" size={22} color={C.white} />
         </TouchableOpacity>
+        <Text style={styles.headerTitle}>Driver Profile</Text>
+        <View style={{ width: 40 }} />
       </View>
-    </ScrollView>
+
+      <ScrollView contentContainerStyle={styles.container}>
+        <View style={styles.card}>
+          <View style={styles.avatarWrap}>
+            <Text style={styles.avatarText}>{(profile?.name || 'D').charAt(0).toUpperCase()}</Text>
+          </View>
+          <Text style={styles.name}>{profile?.name || 'Driver'}</Text>
+          <View style={styles.rolePill}>
+            <Text style={styles.roleText}>COMMERCIAL DRIVER</Text>
+          </View>
+
+          <View style={styles.infoBox}>
+            <Text style={styles.label}>Employee ID</Text>
+            <Text style={styles.value}>{profile?.employee_id || 'N/A'}</Text>
+          </View>
+
+          <View style={styles.infoBox}>
+            <Text style={styles.label}>Registered Mobile</Text>
+            <Text style={styles.value}>{profile?.mobile_number || 'N/A'}</Text>
+          </View>
+
+          <View style={styles.infoBox}>
+            <Text style={styles.label}>Assigned Vehicle</Text>
+            {truck ? (
+              <>
+                <Text style={[styles.value, { color: C.yellow }]}>{truck.truck_number}</Text>
+                <Text style={styles.subValue}>
+                  {truck.fuel_type} • {truck.is_active ? 'Active' : 'Inactive'}
+                  {truck.capacity_liters ? ` • ${truck.capacity_liters} L max` : ''}
+                </Text>
+              </>
+            ) : (
+              <Text style={[styles.value, styles.notAssigned]}>No truck assigned</Text>
+            )}
+          </View>
+
+          <View style={styles.infoBox}>
+            <Text style={styles.label}>Authorization Status</Text>
+            <Text
+              style={[
+                styles.value,
+                profile?.approval_status === 'APPROVED'
+                  ? styles.approved
+                  : profile?.approval_status === 'REJECTED'
+                  ? styles.rejected
+                  : styles.pending,
+              ]}
+            >
+              {profile?.approval_status || 'APPROVED'}
+            </Text>
+          </View>
+
+          <TouchableOpacity style={styles.logoutButton} onPress={handleLogout} activeOpacity={0.85}>
+            <Ionicons name="log-out-outline" size={20} color={C.white} style={{ marginRight: 8 }} />
+            <Text style={styles.logoutText}>Sign Out</Text>
+          </TouchableOpacity>
+        </View>
+      </ScrollView>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
+  safeArea: {
+    flex: 1,
+    backgroundColor: C.night,
+  },
+  neonBar: {
+    height: 3,
+    backgroundColor: C.neon,
+    shadowColor: C.neon,
+    shadowOpacity: 1,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: C.nightBorder,
+  },
+  backBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: C.nightCard,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: C.nightBorder,
+  },
+  headerTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: C.white,
+    letterSpacing: 0.5,
+  },
+  loadingWrap: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: C.night,
+  },
   container: {
     flexGrow: 1,
-    backgroundColor: '#f8fafc',
-    padding: 24,
+    backgroundColor: C.night,
+    padding: 20,
     justifyContent: 'center',
   },
   card: {
-    backgroundColor: '#fff',
+    backgroundColor: C.nightCard,
     borderRadius: 20,
     padding: 24,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
-    elevation: 4,
+    borderColor: C.nightBorder,
   },
-  avatar: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    backgroundColor: '#16a34a',
-    color: '#fff',
-    fontSize: 28,
-    fontWeight: '700',
-    textAlign: 'center',
-    textAlignVertical: 'center',
+  avatarWrap: {
+    width: 76,
+    height: 76,
+    borderRadius: 38,
+    backgroundColor: 'rgba(0,184,255,0.12)',
+    borderWidth: 2,
+    borderColor: C.neon,
+    justifyContent: 'center',
+    alignItems: 'center',
     alignSelf: 'center',
-    marginBottom: 16,
+    marginBottom: 14,
+  },
+  avatarText: {
+    color: C.neon,
+    fontSize: 30,
+    fontWeight: '800',
   },
   name: {
-    fontSize: 24,
-    fontWeight: '700',
+    fontSize: 22,
+    fontWeight: '800',
     textAlign: 'center',
-    color: '#0f172a',
+    color: C.white,
   },
-  role: {
-    fontSize: 15,
-    color: '#16a34a',
-    textAlign: 'center',
-    marginBottom: 22,
-    fontWeight: '600',
+  rolePill: {
+    alignSelf: 'center',
+    backgroundColor: 'rgba(0,200,83,0.12)',
+    borderRadius: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderWidth: 1,
+    borderColor: C.green,
+    marginTop: 6,
+    marginBottom: 20,
+  },
+  roleText: {
+    fontSize: 11,
+    color: C.green,
+    fontWeight: '800',
+    letterSpacing: 1.2,
   },
   infoBox: {
     borderBottomWidth: 1,
-    borderBottomColor: '#e2e8f0',
+    borderBottomColor: C.nightBorder,
     paddingVertical: 12,
   },
   label: {
-    fontSize: 12,
-    color: '#64748b',
+    fontSize: 11,
+    color: C.textSub,
     marginBottom: 4,
-    fontWeight: '600',
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
   },
   value: {
-    fontSize: 16,
-    color: '#0f172a',
+    fontSize: 15,
+    color: C.white,
     fontWeight: '600',
   },
   subValue: {
     fontSize: 13,
-    color: '#64748b',
-    marginTop: 2,
+    color: C.textSub,
+    marginTop: 3,
   },
   notAssigned: {
-    color: '#dc2626',
+    color: C.red,
   },
   approved: {
-    color: '#16a34a',
+    color: C.green,
   },
   pending: {
-    color: '#d97706',
+    color: C.yellow,
   },
   rejected: {
-    color: '#dc2626',
+    color: C.red,
   },
   logoutButton: {
-    backgroundColor: '#dc2626',
+    flexDirection: 'row',
+    backgroundColor: C.red,
     borderRadius: 12,
     paddingVertical: 14,
-    marginTop: 22,
+    marginTop: 24,
     alignItems: 'center',
+    justifyContent: 'center',
   },
   logoutText: {
-    color: '#fff',
-    fontSize: 16,
+    color: C.white,
+    fontSize: 15,
     fontWeight: '700',
   },
 });

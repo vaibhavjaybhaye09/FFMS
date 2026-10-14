@@ -9,12 +9,19 @@ from django.contrib.auth.models import AbstractBaseUser, BaseUserManager
 
 class UserManager(BaseUserManager):
 
-    def create_user(self, mobile_number, password=None, **extra_fields):
+    def create_user(self, username=None, mobile_number=None, password=None, **extra_fields):
+
+        if not username and not mobile_number:
+            raise ValueError("Username or mobile number is required")
+
+        if not username:
+            username = mobile_number
 
         if not mobile_number:
-            raise ValueError("Mobile number is required")
+            mobile_number = username
 
         user = self.model(
+            username=username,
             mobile_number=mobile_number,
             **extra_fields
         )
@@ -24,14 +31,16 @@ class UserManager(BaseUserManager):
 
         return user
 
-    def create_superuser(self, mobile_number, password=None, **extra_fields):
+    def create_superuser(self, username="admin", mobile_number="1234567890", password=None, **extra_fields):
 
         extra_fields.setdefault("role", User.Role.ADMIN)
         extra_fields.setdefault("is_staff", True)
         extra_fields.setdefault("is_superuser", True)
         extra_fields.setdefault("is_active", True)
+        extra_fields.setdefault("approval_status", User.ApprovalStatus.APPROVED)
 
         return self.create_user(
+            username=username,
             mobile_number=mobile_number,
             password=password,
             **extra_fields
@@ -45,7 +54,10 @@ class UserManager(BaseUserManager):
 class User(AbstractBaseUser):
 
     class Role(models.TextChoices):
-        ADMIN = "ADMIN", "Admin"
+        ADMIN = "ADMIN", "Super Admin"
+        PUMP_ADMIN = "PUMP_ADMIN", "Pump Admin"
+        TRUCK_OWNER = "TRUCK_OWNER", "Truck Owner"
+        REGULAR_CUSTOMER = "REGULAR_CUSTOMER", "Regular Customer"
         OPERATOR = "OPERATOR", "Pump Operator"
         DRIVER = "DRIVER", "Truck Driver"
 
@@ -53,6 +65,13 @@ class User(AbstractBaseUser):
         PENDING = "PENDING", "Pending"
         APPROVED = "APPROVED", "Approved"
         REJECTED = "REJECTED", "Rejected"
+
+    username = models.CharField(
+        max_length=50,
+        unique=True,
+        null=True,
+        blank=True
+    )
 
     employee_id = models.CharField(
         max_length=20,
@@ -63,7 +82,14 @@ class User(AbstractBaseUser):
 
     mobile_number = models.CharField(
         max_length=15,
-        unique=True
+        unique=True,
+        null=True,
+        blank=True
+    )
+
+    must_change_password = models.BooleanField(
+        default=False,
+        help_text="Requires password change on first login"
     )
 
     role = models.CharField(
@@ -76,6 +102,22 @@ class User(AbstractBaseUser):
         max_length=20,
         choices=ApprovalStatus.choices,
         default=ApprovalStatus.PENDING
+    )
+
+    pump = models.ForeignKey(
+        "Pump",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="associated_users"
+    )
+
+    created_by = models.ForeignKey(
+        "self",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="created_users"
     )
 
     is_active = models.BooleanField(
@@ -153,6 +195,16 @@ class Pump(models.Model):
         blank=True
     )
 
+    pump_admin = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="managed_pumps",
+        limit_choices_to={"role__in": ["ADMIN", "PUMP_ADMIN"]},
+        help_text="Main admin for this pump"
+    )
+
     operators = models.ManyToManyField(
         settings.AUTH_USER_MODEL,
         through="PumpOperator",
@@ -217,6 +269,16 @@ class Truck(models.Model):
     truck_number = models.CharField(
         max_length=20,
         unique=True
+    )
+
+    customer = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        limit_choices_to={"role__in": ["REGULAR_CUSTOMER", "TRUCK_OWNER"]},
+        related_name="trucks_owned",
+        help_text="Truck owner / customer who owns this truck"
     )
 
     driver = models.ForeignKey(

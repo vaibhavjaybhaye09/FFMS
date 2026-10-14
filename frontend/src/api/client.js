@@ -8,10 +8,13 @@ const getBaseUrl = () => {
     return process.env.EXPO_PUBLIC_API_URL.replace(/\/$/, '');
   }
 
-  const debuggerHost = Constants.expoConfig?.hostUri || Constants.manifest?.debuggerHost || Constants.manifest2?.extra?.expoGo?.debuggerHost;
+  const debuggerHost = Constants.expoConfig?.hostUri
+    || Constants.platform?.hostUri
+    || Constants.manifest?.debuggerHost
+    || Constants.manifest2?.extra?.expoGo?.debuggerHost;
 
   if (debuggerHost) {
-    const host = debuggerHost.split(':')[0];
+    const host = debuggerHost.replace(/^[a-z]+:\/\//i, '').split(':')[0];
     return `http://${host}:8000`;
   }
 
@@ -22,7 +25,8 @@ const getBaseUrl = () => {
   return 'http://127.0.0.1:8000';
 };
 
-const BASE_URL = getBaseUrl();
+export const BASE_URL = getBaseUrl();
+console.log('[API] Base URL:', BASE_URL);
 
 const apiClient = axios.create({
   baseURL: BASE_URL,
@@ -53,6 +57,10 @@ let refreshPromise = null;
 apiClient.interceptors.response.use(
   (response) => response,
   async (error) => {
+    if (!error.response) {
+      console.error('[API] Network error:', error.config?.baseURL, error.config?.url, error.message);
+    }
+
     const originalRequest = error.config;
     const isRefreshRequest = originalRequest?.url?.includes('/api/token/refresh/');
     const isPublicEndpoint = originalRequest?.url?.includes('/api/login/') || originalRequest?.url?.includes('/api/register/');

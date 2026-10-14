@@ -41,28 +41,77 @@ class PumpAdminForm(forms.ModelForm):
                 
         return pump
 
+class UserAdminForm(forms.ModelForm):
+    set_new_password = forms.CharField(
+        widget=forms.PasswordInput,
+        required=False,
+        label="Set Password",
+        help_text="Must be exactly 9 characters long for Pump Admin accounts."
+    )
+
+    class Meta:
+        model = User
+        fields = "__all__"
+
+    def clean(self):
+        cleaned_data = super().clean()
+        role = cleaned_data.get("role")
+        username = cleaned_data.get("username")
+        password = cleaned_data.get("set_new_password")
+
+        if role == User.Role.PUMP_ADMIN:
+            if not username or len(username.strip()) != 9:
+                self.add_error("username", "Pump Admin username must be exactly 9 characters long.")
+            if not self.instance.pk and (not password or len(password.strip()) != 9):
+                self.add_error("set_new_password", "Pump Admin password must be exactly 9 characters long.")
+            elif password and len(password.strip()) != 9:
+                self.add_error("set_new_password", "Pump Admin password must be exactly 9 characters long.")
+
+        return cleaned_data
+
+    def save(self, commit=True):
+        user = super().save(commit=False)
+        new_pwd = self.cleaned_data.get("set_new_password")
+        if new_pwd:
+            user.set_password(new_pwd.strip())
+        if user.role == User.Role.PUMP_ADMIN:
+            user.is_staff = True
+            user.approval_status = User.ApprovalStatus.APPROVED
+            user.is_active = True
+        if commit:
+            user.save()
+        return user
+
+
 @admin.register(User)
 class UserAdmin(admin.ModelAdmin):
+    form = UserAdminForm
 
     list_display = (
         "id",
+        "username",
         "employee_id",
         "first_name",
         "mobile_number",
         "role",
+        "pump",
+        "created_by",
         "approval_status",
         "is_active",
+        "must_change_password",
         "created_at",
     )
 
     list_filter = (
-        "approval_status",
         "role",
+        "approval_status",
         "is_active",
+        "must_change_password",
         "created_at",
     )
 
     search_fields = (
+        "username",
         "employee_id",
         "first_name",
         "last_name",
@@ -73,7 +122,6 @@ class UserAdmin(admin.ModelAdmin):
         "employee_id",
         "created_at",
         "updated_at",
-        "password",
     )
 
     actions = [
@@ -88,11 +136,15 @@ class UserAdmin(admin.ModelAdmin):
             "User Information",
             {
                 "fields": (
+                    "username",
                     "first_name",
                     "last_name",
                     "mobile_number",
-                    "password",
+                    "set_new_password",
                     "role",
+                    "pump",
+                    "created_by",
+                    "must_change_password",
                 )
             },
         ),
@@ -187,6 +239,7 @@ class PumpAdmin(admin.ModelAdmin):
         "code",
         "name",
         "city",
+        "pump_admin",
         "operators_count",
         "is_active",
         "created_at",
@@ -203,6 +256,8 @@ class PumpAdmin(admin.ModelAdmin):
         "code",
         "city",
         "address",
+        "pump_admin__first_name",
+        "pump_admin__mobile_number",
     )
 
     readonly_fields = (
@@ -220,6 +275,7 @@ class PumpAdmin(admin.ModelAdmin):
                     "address",
                     "city",
                     "contact_number",
+                    "pump_admin",
                 )
             },
         ),
@@ -296,6 +352,7 @@ class TruckAdmin(admin.ModelAdmin):
     list_display = (
         "id",
         "truck_number",
+        "customer_name",
         "driver_name",
         "fuel_type",
         "capacity_liters",
@@ -311,6 +368,8 @@ class TruckAdmin(admin.ModelAdmin):
 
     search_fields = (
         "truck_number",
+        "customer__first_name",
+        "customer__mobile_number",
         "driver__first_name",
         "driver__mobile_number",
     )
@@ -326,6 +385,7 @@ class TruckAdmin(admin.ModelAdmin):
             {
                 "fields": (
                     "truck_number",
+                    "customer",
                     "driver",
                     "fuel_type",
                     "capacity_liters",
@@ -348,6 +408,13 @@ class TruckAdmin(admin.ModelAdmin):
             },
         ),
     )
+
+    def customer_name(self, obj):
+        if obj.customer:
+            return obj.customer.get_full_name()
+        return "—"
+
+    customer_name.short_description = "Regular Customer"
 
     def driver_name(self, obj):
         if obj.driver:

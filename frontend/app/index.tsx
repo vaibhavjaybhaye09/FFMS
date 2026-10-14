@@ -1,429 +1,773 @@
-import React, { useState } from 'react';
-import { Ionicons } from '@expo/vector-icons';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   View,
   Text,
   TextInput,
   TouchableOpacity,
   StyleSheet,
-  Alert,
   ActivityIndicator,
   ScrollView,
   KeyboardAvoidingView,
   Platform,
   Modal,
+  ImageBackground,
+  Animated,
+  Dimensions,
+  StatusBar,
 } from 'react-native';
 import { useRouter } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
 import apiClient from '../src/api/client';
 import { saveRefreshToken, saveToken, saveUser } from '../src/storage/token';
 
+const { width, height } = Dimensions.get('window');
+
+// ── BRAND COLOR PALETTE ─────────────────────────────────────
+const C = {
+  primary:    '#1565C0',
+  primaryDark:'#0D47A1',
+  primaryGlow:'#1E88E5',
+  yellow:     '#FFC928',
+  yellowGlow: '#FFD740',
+  white:      '#FFFFFF',
+  red:        '#E53935',
+  green:      '#00C853',
+  night:      '#0B1220',
+  nightCard:  '#121C30',
+  nightBorder:'#1E2E4A',
+  neon:       '#00B8FF',
+  textMuted:  '#627794',
+  textSub:    '#8FA3BF',
+  inputBg:    '#0D1626',
+};
+
+const SUPPORTED_ROLES = [
+  'SUPER ADMIN',
+  'PUMP ADMIN',
+  'PUMP OPERATOR',
+  'TRUCK OWNER',
+  'DRIVER',
+];
+
 export default function AuthScreen() {
-  const [isLogin, setIsLogin] = useState(true);
-  const [firstName, setFirstName] = useState('');
-  const [mobileNumber, setMobileNumber] = useState('');
+  const [role, setRole] = useState('');
+  const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [role, setRole] = useState('DRIVER');
   const [loading, setLoading] = useState(false);
+
+  // Popup state
   const [popup, setPopup] = useState({ visible: false, title: '', message: '', type: 'error' });
+
+  // First-time password change modal state
+  const [firstTimeModal, setFirstTimeModal] = useState(false);
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [changingPassword, setChangingPassword] = useState(false);
+  const [targetRoute, setTargetRoute] = useState<string>('');
+
   const router = useRouter();
 
-  const normalizeMobileNumber = (value) => value.replace(/\s+/g, '').replace(/[^0-9]/g, '');
+  // Animation refs
+  const fadeAnim  = useRef(new Animated.Value(0)).current;
+  const slideAnim = useRef(new Animated.Value(40)).current;
+  const glowPulse = useRef(new Animated.Value(1)).current;
 
-  const handleAuth = async () => {
-    const cleanMobileNumber = normalizeMobileNumber(mobileNumber);
+  useEffect(() => {
+    Animated.parallel([
+      Animated.timing(fadeAnim,  { toValue: 1, duration: 900, useNativeDriver: true }),
+      Animated.spring(slideAnim, { toValue: 0, tension: 60, friction: 9, useNativeDriver: true }),
+    ]).start();
 
-    if (!cleanMobileNumber || !password || (!isLogin && !firstName)) {
-      setPopup({ visible: true, title: 'Missing fields', message: 'Please complete all required fields.', type: 'error' });
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(glowPulse, { toValue: 1.15, duration: 1800, useNativeDriver: true }),
+        Animated.timing(glowPulse, { toValue: 1,    duration: 1800, useNativeDriver: true }),
+      ])
+    ).start();
+  }, []);
+
+  const routeForRole = (userRole: string): string => {
+    if (userRole === 'DRIVER') return '/driver';
+    if (userRole === 'OPERATOR') return '/operator';
+    if (userRole === 'TRUCK_OWNER' || userRole === 'REGULAR_CUSTOMER') return '/customer';
+    if (userRole === 'PUMP_ADMIN' || userRole === 'ADMIN') return '/pump-admin';
+    return '/pump-admin';
+  };
+
+  const handleLogin = async () => {
+    const cleanRole = role.trim();
+    const cleanIdentifier = identifier.trim();
+
+    if (!cleanRole) {
+      setPopup({
+        visible: true,
+        title: 'Role Required',
+        message: 'Please enter your role in CAPITAL LETTERS (e.g. SUPER ADMIN, PUMP ADMIN, PUMP OPERATOR, TRUCK OWNER, DRIVER).',
+        type: 'error',
+      });
+      return;
+    }
+
+    if (cleanRole !== cleanRole.toUpperCase()) {
+      setPopup({
+        visible: true,
+        title: 'Capital Letters Required',
+        message: 'Your role must be typed in ALL CAPITAL LETTERS.',
+        type: 'error',
+      });
+      return;
+    }
+
+    if (!cleanIdentifier || !password) {
+      setPopup({
+        visible: true,
+        title: 'Missing Credentials',
+        message: 'Please enter your Username or Mobile Number, and Password.',
+        type: 'error',
+      });
       return;
     }
 
     setLoading(true);
 
     try {
-      if (isLogin) {
-        const response = await apiClient.post('/api/login/', {
-          mobile_number: cleanMobileNumber,
-          password,
-        });
+      const response = await apiClient.post('/api/login/', {
+        role: cleanRole,
+        username: cleanIdentifier,
+        password,
+      });
 
-        const accessToken = response.data?.tokens?.access;
-        const refreshToken = response.data?.tokens?.refresh;
-        const user = response.data?.user;
-        const userRole = user?.role;
+      const accessToken  = response.data?.tokens?.access;
+      const refreshToken = response.data?.tokens?.refresh;
+      const user         = response.data?.user;
+      const userRole     = user?.role;
 
-        if (!accessToken || !refreshToken) {
-          throw new Error('No access token returned by server.');
-        }
-
-        await saveToken(accessToken);
-        await saveRefreshToken(refreshToken);
-        await saveUser(user);
-
-        if (userRole === 'DRIVER') {
-          router.replace('/driver');
-        } else if (userRole === 'OPERATOR') {
-          router.replace('/operator');
-        } else {
-          setPopup({ visible: true, title: 'Login successful', message: 'Role not recognized.', type: 'error' });
-        }
-      } else {
-        await apiClient.post('/api/register/', {
-          first_name: firstName.trim(),
-          mobile_number: cleanMobileNumber,
-          password,
-          role,
-        });
-
-        setPopup({
-          visible: true,
-          title: 'Registration sent',
-          message: 'Your account is pending admin approval. Please wait for verification before login.',
-          type: 'success',
-        });
-        setIsLogin(true);
+      if (!accessToken || !refreshToken) {
+        throw new Error('No access token returned by server.');
       }
-    } catch (error) {
-      const responseData = error?.response?.data;
-      let message = 'Something went wrong. Please try again.';
 
+      await saveToken(accessToken);
+      await saveRefreshToken(refreshToken);
+      await saveUser(user);
+
+      const nextRoute = routeForRole(userRole);
+
+      // If user was assigned an auto-generated password, require password change
+      if (user?.must_change_password) {
+        setTargetRoute(nextRoute);
+        setFirstTimeModal(true);
+      } else {
+        router.replace(nextRoute as any);
+      }
+    } catch (error: any) {
+      const responseData = error?.response?.data;
+      let message = 'Invalid credentials or unable to sign in.';
       if (responseData) {
-        if (typeof responseData === 'string') {
-          message = responseData;
-        } else if (responseData.detail) {
-          message = responseData.detail;
-        } else if (responseData.error) {
-          message = responseData.error;
-        } else if (responseData.message) {
-          message = responseData.message;
-        } else if (responseData.non_field_errors && responseData.non_field_errors.length > 0) {
+        if (typeof responseData === 'string') message = responseData;
+        else if (responseData.detail)  message = responseData.detail;
+        else if (responseData.error)   message = responseData.error;
+        else if (responseData.message) message = responseData.message;
+        else if (responseData.role) {
+          message = Array.isArray(responseData.role) ? responseData.role[0] : responseData.role;
+        } else if (responseData.non_field_errors?.length) {
           message = responseData.non_field_errors[0];
-        } else if (typeof responseData === 'object' && responseData !== null) {
-          const firstKey = Object.keys(responseData)[0];
-          if (firstKey && Array.isArray(responseData[firstKey]) && responseData[firstKey].length > 0) {
-            message = `${firstKey}: ${responseData[firstKey][0]}`;
-          } else {
-            message = JSON.stringify(responseData);
-          }
+        } else if (typeof responseData === 'object') {
+          const k = Object.keys(responseData)[0];
+          if (k && Array.isArray(responseData[k])) message = `${responseData[k][0]}`;
+          else message = JSON.stringify(responseData);
         }
       } else if (error.message) {
         message = error.message;
       }
-
-      setPopup({ visible: true, title: isLogin ? 'Login failed' : 'Registration failed', message, type: 'error' });
+      setPopup({ visible: true, title: 'Login Failed', message, type: 'error' });
     } finally {
       setLoading(false);
     }
   };
 
+  const handlePasswordChange = async () => {
+    if (!newPassword || newPassword.length < 6) {
+      setPopup({ visible: true, title: 'Password Too Short', message: 'New password must be at least 6 characters.', type: 'error' });
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setPopup({ visible: true, title: 'Mismatch', message: 'Passwords do not match.', type: 'error' });
+      return;
+    }
+
+    setChangingPassword(true);
+    try {
+      await apiClient.post('/api/change-password/', { new_password: newPassword });
+      setFirstTimeModal(false);
+      setPopup({
+        visible: true,
+        title: 'Password Set Successfully',
+        message: 'Your personal password has been saved. Welcome!',
+        type: 'success',
+      });
+      setTimeout(() => {
+        router.replace((targetRoute || '/driver') as any);
+      }, 1200);
+    } catch (err: any) {
+      setPopup({
+        visible: true,
+        title: 'Error Setting Password',
+        message: err.response?.data?.message || err.message || 'Failed to update password.',
+        type: 'error',
+      });
+    } finally {
+      setChangingPassword(false);
+    }
+  };
+
   return (
-    <KeyboardAvoidingView
-      style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-    >
-      <ScrollView contentContainerStyle={styles.scrollContent}>
-        <View style={styles.card}>
-          <Text style={styles.title}>{isLogin ? 'Fuel Fleet Login' : 'Register Account'}</Text>
+    <View style={styles.root}>
+      <StatusBar barStyle="light-content" backgroundColor={C.night} />
 
-          <View style={styles.toggleRow}>
-            <TouchableOpacity
-              style={[styles.toggle, isLogin && styles.toggleActive]}
-              onPress={() => setIsLogin(true)}
-            >
-              <Text style={[styles.toggleText, isLogin && styles.toggleTextActive]}>Login</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.toggle, !isLogin && styles.toggleActive]}
-              onPress={() => setIsLogin(false)}
-            >
-              <Text style={[styles.toggleText, !isLogin && styles.toggleTextActive]}>Register</Text>
-            </TouchableOpacity>
-          </View>
+      {/* ── Hero Background Image ── */}
+      <ImageBackground
+        source={require('../assets/images/pump_night.jpg')}
+        style={styles.heroBg}
+        resizeMode="cover"
+      >
+        <View style={styles.heroOverlay} />
 
-          {!isLogin && (
-            <>
-              <TextInput
-                style={styles.input}
-                placeholder="Full name"
-                value={firstName}
-                onChangeText={setFirstName}
-                autoCapitalize="words"
-              />
+        {/* Neon glow bar at top */}
+        <View style={styles.neonTopBar} />
 
-              <View style={styles.roleRow}>
+        {/* ── Logo / Brand ── */}
+        <Animated.View style={[styles.brandBlock, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
+          <Animated.View style={[styles.logoRing, { transform: [{ scale: glowPulse }] }]}>
+            <Ionicons name="flash" size={34} color={C.yellow} />
+          </Animated.View>
+          <Text style={styles.brandName}>FuelFleet</Text>
+          <Text style={styles.brandTagline}>Role-Based Fuel Management System</Text>
+        </Animated.View>
+      </ImageBackground>
+
+      {/* ── Auth Card ── */}
+      <KeyboardAvoidingView
+        style={styles.cardWrapper}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      >
+        <ScrollView
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+        >
+          <Animated.View style={[styles.card, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
+
+            {/* Header */}
+            <View style={styles.cardHeader}>
+              <View style={styles.secureBadge}>
+                <Ionicons name="shield-checkmark" size={14} color={C.neon} style={{ marginRight: 4 }} />
+                <Text style={styles.secureBadgeText}>AUTHORIZED ACCESS ONLY</Text>
+              </View>
+              <Text style={styles.sectionTitle}>System Login</Text>
+              <Text style={styles.sectionSub}>Enter your role, credentials, and security password</Text>
+            </View>
+
+            {/* ── Field 1: Role in CAPITAL LETTERS ── */}
+            <View style={styles.inputGroup}>
+              <Text style={styles.fieldLabel}>ENTER ROLE (IN CAPITAL LETTERS) *</Text>
+              <View style={styles.inputIconRow}>
+                <Ionicons name="briefcase-outline" size={18} color={C.neon} style={styles.inputIcon} />
+                <TextInput
+                  style={styles.input}
+                  placeholder="e.g. SUPER ADMIN, PUMP ADMIN..."
+                  placeholderTextColor={C.textMuted}
+                  value={role}
+                  onChangeText={(text) => setRole(text.toUpperCase())}
+                  autoCapitalize="characters"
+                  autoCorrect={false}
+                />
+                {role.length > 0 && (
+                  <TouchableOpacity onPress={() => setRole('')}>
+                    <Ionicons name="close-circle" size={18} color={C.textMuted} style={{ marginRight: 10 }} />
+                  </TouchableOpacity>
+                )}
+              </View>
+
+              {/* Quick Select Chips */}
+              <View style={styles.chipScroll}>
+                {SUPPORTED_ROLES.map((r) => {
+                  const isSelected = role === r;
+                  return (
+                    <TouchableOpacity
+                      key={r}
+                      style={[styles.chip, isSelected && styles.chipSelected]}
+                      onPress={() => setRole(r)}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={[styles.chipText, isSelected && styles.chipTextSelected]}>
+                        {r}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </View>
+
+            {/* ── Field 2: Username or Mobile Number ── */}
+            <View style={styles.inputGroup}>
+              <Text style={styles.fieldLabel}>USERNAME OR MOBILE NUMBER *</Text>
+              <View style={styles.inputIconRow}>
+                <Ionicons name="person-outline" size={18} color={C.neon} style={styles.inputIcon} />
+                <TextInput
+                  style={styles.input}
+                  placeholder="Username (9-chars) or 10-digit Mobile"
+                  placeholderTextColor={C.textMuted}
+                  value={identifier}
+                  onChangeText={setIdentifier}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                />
+              </View>
+            </View>
+
+            {/* ── Field 3: Password ── */}
+            <View style={styles.inputGroup}>
+              <Text style={styles.fieldLabel}>PASSWORD *</Text>
+              <View style={styles.inputIconRow}>
+                <Ionicons name="lock-closed-outline" size={18} color={C.neon} style={styles.inputIcon} />
+                <TextInput
+                  style={styles.input}
+                  placeholder="Enter your account password"
+                  placeholderTextColor={C.textMuted}
+                  value={password}
+                  onChangeText={setPassword}
+                  secureTextEntry={!showPassword}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                />
                 <TouchableOpacity
-                  style={[styles.roleButton, role === 'DRIVER' && styles.roleButtonSelected]}
-                  onPress={() => setRole('DRIVER')}
+                  onPress={() => setShowPassword(!showPassword)}
+                  style={styles.eyeBtn}
                 >
-                  <Text style={[styles.roleText, role === 'DRIVER' && styles.roleTextSelected]}>Driver</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.roleButton, role === 'OPERATOR' && styles.roleButtonSelected]}
-                  onPress={() => setRole('OPERATOR')}
-                >
-                  <Text style={[styles.roleText, role === 'OPERATOR' && styles.roleTextSelected]}>Operator</Text>
+                  <Ionicons
+                    name={showPassword ? 'eye-off-outline' : 'eye-outline'}
+                    size={20}
+                    color={C.textSub}
+                  />
                 </TouchableOpacity>
               </View>
-            </>
-          )}
+            </View>
 
-          <TextInput
-            style={styles.input}
-            placeholder="Mobile number"
-            value={mobileNumber}
-            onChangeText={setMobileNumber}
-            keyboardType="phone-pad"
-            autoCapitalize="none"
-          />
-
-          <View style={styles.passwordContainer}>
-            <TextInput
-              style={styles.passwordInput}
-              placeholder="Password"
-              value={password}
-              onChangeText={setPassword}
-              secureTextEntry={!showPassword}
-            />
-
+            {/* ── Submit Button ── */}
             <TouchableOpacity
-              style={styles.eyeButton}
-              onPress={() => setShowPassword(!showPassword)}
+              style={[styles.submitBtn, loading && styles.submitBtnDisabled]}
+              onPress={handleLogin}
+              disabled={loading}
+              activeOpacity={0.88}
+            >
+              {loading ? (
+                <ActivityIndicator color={C.white} size="small" />
+              ) : (
+                <View style={styles.btnContent}>
+                  <Text style={styles.submitBtnText}>Sign In to Dashboard</Text>
+                  <Ionicons name="arrow-forward" size={18} color={C.white} style={{ marginLeft: 8 }} />
+                </View>
+              )}
+            </TouchableOpacity>
+
+            {/* Security note */}
+            <View style={styles.footerNote}>
+              <Ionicons name="lock-closed" size={12} color={C.textMuted} style={{ marginRight: 5 }} />
+              <Text style={styles.footerNoteText}>
+                No public registration. Accounts are issued by Super Admin & Pump Admins.
+              </Text>
+            </View>
+          </Animated.View>
+        </ScrollView>
+      </KeyboardAvoidingView>
+
+      {/* ── Alert Popup Modal ── */}
+      <Modal visible={popup.visible} transparent animationType="fade">
+        <View style={styles.modalBackdrop}>
+          <View style={styles.popupCard}>
+            <View
+              style={[
+                styles.popupIconWrap,
+                { backgroundColor: popup.type === 'success' ? 'rgba(0,200,83,0.15)' : 'rgba(229,57,53,0.15)' },
+              ]}
             >
               <Ionicons
-                name={showPassword ? 'eye-off-outline' : 'eye-outline'}
-                size={22}
-                color="#64748b"
-              />
-            </TouchableOpacity>
-          </View>
-
-          <TouchableOpacity style={styles.button} onPress={handleAuth} disabled={loading}>
-            {loading ? (
-              <ActivityIndicator color="#fff" />
-            ) : (
-              <Text style={styles.buttonText}>{isLogin ? 'Sign In' : 'Create Account'}</Text>
-            )}
-          </TouchableOpacity>
-        </View>
-      </ScrollView>
-
-      {/* Custom Popup Modal */}
-      <Modal
-        visible={popup.visible}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setPopup({ ...popup, visible: false })}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalCard}>
-            <View style={[styles.iconCircle, popup.type === 'error' ? styles.iconCircleError : styles.iconCircleSuccess]}>
-              <Ionicons 
-                name={popup.type === 'error' ? 'close' : 'checkmark'} 
-                size={38} 
-                color={popup.type === 'error' ? '#ef4444' : '#22c55e'} 
+                name={popup.type === 'success' ? 'checkmark-circle' : 'alert-circle'}
+                size={40}
+                color={popup.type === 'success' ? C.green : C.red}
               />
             </View>
-            <Text style={styles.modalTitle}>{popup.title}</Text>
-            <Text style={styles.modalMessage}>{popup.message}</Text>
-            <TouchableOpacity 
-              style={[styles.modalButton, popup.type === 'error' ? styles.modalButtonError : styles.modalButtonSuccess]}
+            <Text style={styles.popupTitle}>{popup.title}</Text>
+            <Text style={styles.popupMessage}>{popup.message}</Text>
+            <TouchableOpacity
+              style={[
+                styles.popupBtn,
+                { backgroundColor: popup.type === 'success' ? C.primary : C.red },
+              ]}
               onPress={() => setPopup({ ...popup, visible: false })}
             >
-              <Text style={styles.modalButtonText}>Okay</Text>
+              <Text style={styles.popupBtnText}>OK</Text>
             </TouchableOpacity>
           </View>
         </View>
       </Modal>
 
-    </KeyboardAvoidingView>
+      {/* ── First-Time Login Password Change Modal ── */}
+      <Modal visible={firstTimeModal} transparent animationType="slide">
+        <View style={styles.modalBackdrop}>
+          <View style={styles.firstTimeCard}>
+            <View style={styles.firstTimeIconWrap}>
+              <Ionicons name="key" size={32} color={C.yellow} />
+            </View>
+            <Text style={styles.firstTimeTitle}>Password Change Required</Text>
+            <Text style={styles.firstTimeSub}>
+              You logged in with a system-generated password. Please create your own secure personal password to continue.
+            </Text>
+
+            <View style={styles.inputGroup}>
+              <Text style={styles.fieldLabel}>NEW PASSWORD (MIN 6 CHARACTERS)</Text>
+              <View style={styles.inputIconRow}>
+                <Ionicons name="lock-closed-outline" size={18} color={C.neon} style={styles.inputIcon} />
+                <TextInput
+                  style={styles.input}
+                  placeholder="Enter new password"
+                  placeholderTextColor={C.textMuted}
+                  value={newPassword}
+                  onChangeText={setNewPassword}
+                  secureTextEntry
+                />
+              </View>
+            </View>
+
+            <View style={styles.inputGroup}>
+              <Text style={styles.fieldLabel}>CONFIRM NEW PASSWORD</Text>
+              <View style={styles.inputIconRow}>
+                <Ionicons name="lock-closed-outline" size={18} color={C.neon} style={styles.inputIcon} />
+                <TextInput
+                  style={styles.input}
+                  placeholder="Confirm new password"
+                  placeholderTextColor={C.textMuted}
+                  value={confirmPassword}
+                  onChangeText={setConfirmPassword}
+                  secureTextEntry
+                />
+              </View>
+            </View>
+
+            <TouchableOpacity
+              style={[styles.submitBtn, { backgroundColor: C.primary, marginTop: 14 }]}
+              onPress={handlePasswordChange}
+              disabled={changingPassword}
+            >
+              {changingPassword ? (
+                <ActivityIndicator color={C.white} size="small" />
+              ) : (
+                <Text style={styles.submitBtnText}>Save Password & Proceed</Text>
+              )}
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  root: {
     flex: 1,
-    backgroundColor: '#0f172a',
+    backgroundColor: C.night,
   },
-  scrollContent: {
-    flexGrow: 1,
-    justifyContent: 'center',
-    padding: 24,
+  heroBg: {
+    width: '100%',
+    height: height * 0.36,
+    justifyContent: 'flex-end',
   },
-  card: {
-    backgroundColor: '#ffffff',
-    borderRadius: 18,
-    padding: 24,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.1,
-    shadowRadius: 18,
+  heroOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(11,18,32,0.76)',
+  },
+  neonTopBar: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 3,
+    backgroundColor: C.neon,
+    shadowColor: C.neon,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.9,
+    shadowRadius: 10,
     elevation: 8,
   },
-  title: {
-    fontSize: 28,
-    fontWeight: '700',
-    marginBottom: 20,
-    textAlign: 'center',
-    color: '#0f172a',
-  },
-  toggleRow: {
-    flexDirection: 'row',
-    backgroundColor: '#e2e8f0',
-    borderRadius: 10,
-    padding: 4,
-    marginBottom: 18,
-  },
-  toggle: {
-    flex: 1,
-    paddingVertical: 10,
-    borderRadius: 8,
+  brandBlock: {
     alignItems: 'center',
+    paddingBottom: 22,
   },
-  toggleActive: {
-    backgroundColor: '#2563eb',
-  },
-  toggleText: {
-    color: '#334155',
-    fontWeight: '600',
-  },
-  toggleTextActive: {
-    color: '#fff',
-  },
-  roleRow: {
-    flexDirection: 'row',
-    marginBottom: 16,
-    gap: 10,
-  },
-  roleButton: {
-    flex: 1,
-    paddingVertical: 10,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: '#cbd5e1',
-    alignItems: 'center',
-    backgroundColor: '#f8fafc',
-  },
-  roleButtonSelected: {
-    backgroundColor: '#dbeafe',
-    borderColor: '#2563eb',
-  },
-  roleText: {
-    fontWeight: '600',
-    color: '#334155',
-  },
-  roleTextSelected: {
-    color: '#1d4ed8',
-  },
-  input: {
-    backgroundColor: '#f8fafc',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderRadius: 10,
-    marginBottom: 14,
-    borderWidth: 1,
-    borderColor: '#dbe3f0',
-    fontSize: 16,
-  },
-  button: {
-    backgroundColor: '#2563eb',
-    paddingVertical: 14,
-    borderRadius: 10,
-    alignItems: 'center',
-    marginTop: 10,
-  },
-  buttonText: {
-    color: '#ffffff',
-    fontSize: 16,
-    fontWeight: '700',
-  },
-  passwordContainer: {
-    position: 'relative',
-    marginBottom: 14,
-  },
-
-  passwordInput: {
-    backgroundColor: '#f8fafc',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    paddingRight: 50,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: '#dbe3f0',
-    fontSize: 16,
-  },
-
-  eyeButton: {
-    position: 'absolute',
-    right: 14,
-    top: 0,
-    bottom: 0,
+  logoRing: {
+    width: 66,
+    height: 66,
+    borderRadius: 33,
+    backgroundColor: 'rgba(21,101,192,0.3)',
+    borderWidth: 2,
+    borderColor: C.neon,
     justifyContent: 'center',
     alignItems: 'center',
+    marginBottom: 8,
+    shadowColor: C.neon,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.8,
+    shadowRadius: 12,
+    elevation: 10,
   },
-  
-  // Modal Styles
-  modalOverlay: {
+  brandName: {
+    fontSize: 28,
+    fontWeight: '900',
+    color: C.white,
+    letterSpacing: 2,
+    textTransform: 'uppercase',
+  },
+  brandTagline: {
+    fontSize: 12,
+    color: C.textSub,
+    letterSpacing: 1.2,
+    marginTop: 2,
+  },
+  cardWrapper: {
     flex: 1,
-    backgroundColor: 'rgba(15, 23, 42, 0.6)',
+  },
+  scrollContent: {
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    paddingBottom: 36,
+  },
+  card: {
+    backgroundColor: C.nightCard,
+    borderRadius: 20,
+    padding: 22,
+    borderWidth: 1,
+    borderColor: C.nightBorder,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.45,
+    shadowRadius: 20,
+    elevation: 12,
+  },
+  cardHeader: {
+    marginBottom: 18,
+  },
+  secureBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    backgroundColor: 'rgba(0,184,255,0.12)',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(0,184,255,0.4)',
+    marginBottom: 8,
+  },
+  secureBadgeText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: C.neon,
+    letterSpacing: 1,
+  },
+  sectionTitle: {
+    fontSize: 22,
+    fontWeight: '800',
+    color: C.white,
+  },
+  sectionSub: {
+    fontSize: 12,
+    color: C.textSub,
+    marginTop: 3,
+  },
+  inputGroup: {
+    marginBottom: 16,
+  },
+  fieldLabel: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: C.textSub,
+    letterSpacing: 1,
+    marginBottom: 6,
+  },
+  inputIconRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: C.inputBg,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: C.nightBorder,
+    paddingHorizontal: 12,
+    height: 50,
+  },
+  inputIcon: {
+    marginRight: 10,
+  },
+  input: {
+    flex: 1,
+    color: C.white,
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  eyeBtn: {
+    padding: 6,
+  },
+  chipScroll: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginTop: 8,
+  },
+  chip: {
+    backgroundColor: 'rgba(30,46,74,0.6)',
+    borderRadius: 6,
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    borderWidth: 1,
+    borderColor: C.nightBorder,
+  },
+  chipSelected: {
+    backgroundColor: 'rgba(0,184,255,0.18)',
+    borderColor: C.neon,
+  },
+  chipText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: C.textSub,
+    letterSpacing: 0.6,
+  },
+  chipTextSelected: {
+    color: C.neon,
+  },
+  submitBtn: {
+    backgroundColor: C.primary,
+    borderRadius: 12,
+    paddingVertical: 15,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 8,
+    shadowColor: C.primary,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.6,
+    shadowRadius: 10,
+    elevation: 8,
+  },
+  submitBtnDisabled: {
+    opacity: 0.65,
+  },
+  btnContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  submitBtnText: {
+    color: C.white,
+    fontSize: 15,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+  },
+  footerNote: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 18,
+    paddingHorizontal: 8,
+  },
+  footerNoteText: {
+    fontSize: 11,
+    color: C.textMuted,
+    textAlign: 'center',
+    lineHeight: 16,
+  },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.75)',
     justifyContent: 'center',
     alignItems: 'center',
     padding: 24,
   },
-  modalCard: {
-    backgroundColor: '#ffffff',
+  popupCard: {
+    backgroundColor: C.nightCard,
     borderRadius: 20,
     padding: 24,
     width: '100%',
+    maxWidth: 380,
     alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.2,
-    shadowRadius: 20,
-    elevation: 10,
+    borderWidth: 1,
+    borderColor: C.nightBorder,
   },
-  iconCircle: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
+  popupIconWrap: {
+    width: 68,
+    height: 68,
+    borderRadius: 34,
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 16,
   },
-  iconCircleError: {
-    backgroundColor: '#fef2f2',
+  popupTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: C.white,
+    marginBottom: 8,
+    textAlign: 'center',
   },
-  iconCircleSuccess: {
-    backgroundColor: '#f0fdf4',
+  popupMessage: {
+    fontSize: 13,
+    color: C.textSub,
+    textAlign: 'center',
+    lineHeight: 19,
+    marginBottom: 20,
   },
-  modalTitle: {
-    fontSize: 22,
+  popupBtn: {
+    borderRadius: 10,
+    paddingVertical: 12,
+    paddingHorizontal: 36,
+  },
+  popupBtnText: {
+    color: C.white,
     fontWeight: '700',
-    color: '#0f172a',
-    marginBottom: 10,
-    textAlign: 'center',
+    fontSize: 14,
   },
-  modalMessage: {
-    fontSize: 15,
-    color: '#475569',
-    textAlign: 'center',
-    marginBottom: 24,
-    lineHeight: 22,
-  },
-  modalButton: {
+  firstTimeCard: {
+    backgroundColor: C.nightCard,
+    borderRadius: 20,
+    padding: 22,
     width: '100%',
-    paddingVertical: 14,
-    borderRadius: 12,
+    maxWidth: 420,
+    borderWidth: 1,
+    borderColor: C.nightBorder,
+  },
+  firstTimeIconWrap: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: 'rgba(255,201,40,0.15)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,201,40,0.4)',
+    justifyContent: 'center',
     alignItems: 'center',
+    alignSelf: 'center',
+    marginBottom: 12,
   },
-  modalButtonError: {
-    backgroundColor: '#ef4444',
+  firstTimeTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: C.white,
+    textAlign: 'center',
   },
-  modalButtonSuccess: {
-    backgroundColor: '#22c55e',
-  },
-  modalButtonText: {
-    color: '#ffffff',
-    fontSize: 16,
-    fontWeight: '700',
+  firstTimeSub: {
+    fontSize: 12,
+    color: C.textSub,
+    textAlign: 'center',
+    marginTop: 4,
+    marginBottom: 16,
+    lineHeight: 18,
   },
 });
