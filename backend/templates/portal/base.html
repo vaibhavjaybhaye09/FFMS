@@ -1,0 +1,301 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <!-- Favicon -->
+    <link rel="icon" type="image/png" sizes="32x32" href="{% static 'images/icon.png' %}?v=2">
+    <link rel="shortcut icon" type="image/png" href="{% static 'images/icon.png' %}?v=2">
+    <link rel="apple-touch-icon" href="{% static 'images/icon.png' %}?v=2">
+    <title>{% block title %}Pump Admin Portal{% endblock %} - FuelFleet</title>
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap"
+        rel="stylesheet">
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        brand: {
+                            50: '#F0F9FF',
+                            100: '#E0F2FE',
+                            500: '#0EA5E9',
+                            600: '#0284C7',
+                            700: '#0369A1',
+                            900: '#0C4A6E',
+                        }
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #F8FAFC;
+            color: #0F172A;
+        }
+
+        /* Custom IND License Plate Style */
+        .ind-plate {
+            display: inline-flex;
+            align-items: center;
+            background-color: #FFFDE7;
+            border: 2px solid #0B1220;
+            border-radius: 6px;
+            overflow: hidden;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+        }
+
+        .ind-plate .ind-blue {
+            background-color: #0284C7;
+            color: #FFFFFF;
+            font-size: 9px;
+            font-weight: 900;
+            padding: 3px 5px;
+            letter-spacing: 0.5px;
+        }
+
+        .ind-plate .plate-text {
+            color: #0B1220;
+            font-weight: 800;
+            font-size: 13px;
+            letter-spacing: 1.5px;
+            padding: 2px 8px;
+        }
+
+        @media print {
+            .no-print {
+                display: none !important;
+            }
+
+            body {
+                background: white !important;
+            }
+        }
+    </style>
+    {% block extra_head %}{% endblock %}
+</head>
+
+<body class="min-h-screen flex flex-col antialiased">
+
+    <!-- Top Glow Line -->
+    <div class="h-1 bg-gradient-to-r from-sky-500 via-blue-600 to-indigo-600"></div>
+
+    <!-- Header / Navbar -->
+    <header class="bg-white border-b border-slate-200 sticky top-0 z-40 shadow-sm no-print">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex items-center justify-between h-16">
+
+                <!-- Brand Info -->
+                <div class="flex items-center space-x-3">
+                    <a href="{% url 'portal-dashboard' %}" class="flex items-center space-x-2.5 group">
+                        <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-sky-600 to-blue-500 border border-sky-400/40 flex items-center justify-center text-white shadow-sm group-hover:scale-105 transition-transform">
+                            <i class="fa-solid fa-bolt text-lg text-amber-300"></i>
+                        </div>
+                        <div class="flex items-center space-x-2">
+                            <span class="font-extrabold text-lg text-slate-900 tracking-tight">FuelFleet</span>
+                            <span class="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-200">Pump Admin</span>
+                        </div>
+                    </a>
+                </div>
+
+                <!-- Navigation Tabs (Desktop) -->
+                <nav class="hidden md:flex items-center space-x-1">
+                    <a href="{% url 'portal-dashboard' %}"
+                        class="px-3.5 py-2 rounded-lg text-sm font-semibold transition-colors {% if active_nav == 'dashboard' %}bg-sky-50 text-sky-700 border border-sky-200{% else %}text-slate-600 hover:text-slate-900 hover:bg-slate-100{% endif %}">
+                        <i
+                            class="fa-solid fa-chart-pie mr-1.5 {% if active_nav == 'dashboard' %}text-sky-600{% else %}text-slate-400{% endif %}"></i>{{ t.nav_overview }}
+                    </a>
+                    <a href="{% url 'portal-operator-reports' %}"
+                        class="px-3.5 py-2 rounded-lg text-sm font-semibold transition-colors {% if active_nav == 'operators' %}bg-sky-50 text-sky-700 border border-sky-200{% else %}text-slate-600 hover:text-slate-900 hover:bg-slate-100{% endif %}">
+                        <i
+                            class="fa-solid fa-user-gear mr-1.5 {% if active_nav == 'operators' %}text-sky-600{% else %}text-slate-400{% endif %}"></i>{{ t.nav_operators }}
+                    </a>
+                    <a href="{% url 'portal-customer-reports' %}"
+                        class="px-3.5 py-2 rounded-lg text-sm font-semibold transition-colors {% if active_nav == 'customers' %}bg-sky-50 text-sky-700 border border-sky-200{% else %}text-slate-600 hover:text-slate-900 hover:bg-slate-100{% endif %}">
+                        <i
+                            class="fa-solid fa-truck-moving mr-1.5 {% if active_nav == 'customers' %}text-sky-600{% else %}text-slate-400{% endif %}"></i>{{ t.nav_customers }}
+                    </a>
+                    <a href="{% url 'portal-transactions' %}"
+                        class="px-3.5 py-2 rounded-lg text-sm font-semibold transition-colors {% if active_nav == 'transactions' %}bg-sky-50 text-sky-700 border border-sky-200{% else %}text-slate-600 hover:text-slate-900 hover:bg-slate-100{% endif %}">
+                        <i
+                            class="fa-solid fa-receipt mr-1.5 {% if active_nav == 'transactions' %}text-sky-600{% else %}text-slate-400{% endif %}"></i>{{ t.nav_transactions }}
+                    </a>
+                    <a href="{% url 'portal-settings' %}"
+                        class="px-3.5 py-2 rounded-lg text-sm font-semibold transition-colors {% if active_nav == 'settings' %}bg-sky-50 text-sky-700 border border-sky-200{% else %}text-slate-600 hover:text-slate-900 hover:bg-slate-100{% endif %}">
+                        <i
+                            class="fa-solid fa-sliders mr-1.5 {% if active_nav == 'settings' %}text-sky-600{% else %}text-slate-400{% endif %}"></i>{{ t.nav_settings }}
+                    </a>
+                </nav>
+
+                <!-- Language Switcher & User Dropdown & Logout -->
+                <div class="flex items-center space-x-2.5">
+                    
+                    <!-- Language Switcher Pill -->
+                    <div class="inline-flex items-center p-1 bg-slate-100 rounded-xl border border-slate-200" title="Select Language / भाषा निवडा">
+                        <a href="{% url 'portal-set-language' 'en' %}?next={{ request.path }}" 
+                           class="px-2.5 py-1 text-xs font-black rounded-lg transition-all {% if current_lang == 'en' %}bg-white text-sky-700 shadow-xs border border-slate-200/80{% else %}text-slate-500 hover:text-slate-800{% endif %}">
+                            EN
+                        </a>
+                        <a href="{% url 'portal-set-language' 'mr' %}?next={{ request.path }}" 
+                           class="px-2.5 py-1 text-xs font-black rounded-lg transition-all {% if current_lang == 'mr' %}bg-white text-sky-700 shadow-xs border border-slate-200/80{% else %}text-slate-500 hover:text-slate-800{% endif %}">
+                            मराठी
+                        </a>
+                        <a href="{% url 'portal-set-language' 'hi' %}?next={{ request.path }}" 
+                           class="px-2.5 py-1 text-xs font-black rounded-lg transition-all {% if current_lang == 'hi' %}bg-white text-sky-700 shadow-xs border border-slate-200/80{% else %}text-slate-500 hover:text-slate-800{% endif %}">
+                            हिंदी
+                        </a>
+                    </div>
+
+                    <div class="hidden sm:flex items-center space-x-2.5 bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-xl">
+                        <div class="w-8 h-8 rounded-lg bg-sky-600 text-white font-black text-xs flex items-center justify-center shadow-xs">
+                            {{ request.user.username|slice:":2"|upper }}
+                        </div>
+                        <div class="flex flex-col text-left">
+                            <span class="text-xs font-bold text-slate-800">{{ request.user.get_full_name|default:request.user.username }}</span>
+                            <span class="text-[10px] text-slate-500 font-medium">{% if request.user.role == 'ADMIN' %}{{ t.super_admin_role }}{% else %}{{ t.admin_role }}{% endif %}</span>
+                        </div>
+                    </div>
+                    <a href="{% url 'portal-logout' %}" title="Sign Out"
+                        class="inline-flex items-center px-3 py-1.5 rounded-xl text-xs font-bold text-red-600 bg-red-50 border border-red-200 hover:bg-red-100 transition-colors shadow-xs">
+                        <i class="fa-solid fa-arrow-right-from-bracket mr-1.5"></i>{{ t.logout }}
+                    </a>
+                </div>
+            </div>
+
+            <!-- Mobile Navigation Bar -->
+            <div
+                class="md:hidden flex items-center justify-around py-2 border-t border-slate-100 overflow-x-auto text-xs">
+                <a href="{% url 'portal-dashboard' %}"
+                    class="py-1 px-2 font-semibold {% if active_nav == 'dashboard' %}text-sky-600 font-bold{% else %}text-slate-600{% endif %}">
+                    {{ t.nav_overview }}
+                </a>
+                <a href="{% url 'portal-operator-reports' %}"
+                    class="py-1 px-2 font-semibold {% if active_nav == 'operators' %}text-sky-600 font-bold{% else %}text-slate-600{% endif %}">
+                    {{ t.nav_operators }}
+                </a>
+                <a href="{% url 'portal-customer-reports' %}"
+                    class="py-1 px-2 font-semibold {% if active_nav == 'customers' %}text-sky-600 font-bold{% else %}text-slate-600{% endif %}">
+                    {{ t.nav_customers }}
+                </a>
+                <a href="{% url 'portal-transactions' %}"
+                    class="py-1 px-2 font-semibold {% if active_nav == 'transactions' %}text-sky-600 font-bold{% else %}text-slate-600{% endif %}">
+                    {{ t.nav_transactions }}
+                </a>
+                <a href="{% url 'portal-settings' %}"
+                    class="py-1 px-2 font-semibold {% if active_nav == 'settings' %}text-sky-600 font-bold{% else %}text-slate-600{% endif %}">
+                    {{ t.nav_settings }}
+                </a>
+            </div>
+        </div>
+    </header>
+
+    <!-- Global Toast / Alert Messages -->
+    {% if messages %}
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-4 no-print">
+        {% for message in messages %}
+        <div
+            class="p-3.5 rounded-xl border flex items-center space-x-2 text-sm {% if message.tags == 'error' %}bg-red-50 text-red-800 border-red-200{% elif message.tags == 'success' %}bg-emerald-50 text-emerald-800 border-emerald-200{% else %}bg-sky-50 text-sky-800 border-sky-200{% endif %}">
+            <i
+                class="fa-solid {% if message.tags == 'error' %}fa-circle-exclamation text-red-600{% elif message.tags == 'success' %}fa-circle-check text-emerald-600{% else %}fa-circle-info text-sky-600{% endif %}"></i>
+            <span class="font-medium">{{ message }}</span>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    <!-- Main Page Content -->
+    <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        {% block content %}{% endblock %}
+    </main>
+
+    <!-- Footer -->
+    <footer class="bg-white border-t border-slate-200 py-6 text-center text-xs text-slate-500 no-print">
+        <div class="max-w-7xl mx-auto px-4">
+            <p class="font-medium">FuelFleet Pump Management System &copy; {% now "Y" %} &middot; Authorized Pump
+                Administrator Console</p>
+        </div>
+    </footer>
+
+    <!-- Universal Image Lightbox Modal -->
+    <div id="imageLightboxModal"
+        class="fixed inset-0 bg-slate-950/80 z-50 hidden flex items-center justify-center p-4 backdrop-blur-sm transition-opacity"
+        onclick="closeImageModal()">
+        <div class="relative bg-white rounded-2xl max-w-3xl w-full max-h-[90vh] overflow-hidden shadow-2xl border border-slate-200 flex flex-col"
+            onclick="event.stopPropagation()">
+            <!-- Modal Header -->
+            <div class="flex items-center justify-between px-5 py-3.5 border-b border-slate-100 bg-slate-50">
+                <div class="flex items-center space-x-2">
+                    <span id="modalIconWrap"
+                        class="w-7 h-7 rounded-lg bg-sky-100 text-sky-600 flex items-center justify-center text-sm">
+                        <i class="fa-solid fa-camera"></i>
+                    </span>
+                    <h3 id="modalImageTitle" class="font-bold text-sm text-slate-800">Verification Photo</h3>
+                </div>
+                <button onclick="closeImageModal()"
+                    class="w-8 h-8 rounded-lg bg-slate-200 hover:bg-slate-300 text-slate-600 flex items-center justify-center transition-colors">
+                    <i class="fa-solid fa-xmark text-sm"></i>
+                </button>
+            </div>
+            <!-- Modal Body -->
+            <div class="flex-1 bg-slate-900 flex items-center justify-center p-2 overflow-auto">
+                <img id="modalPreviewImg" src="" alt="Photo"
+                    class="max-h-[72vh] w-auto max-w-full object-contain rounded-lg">
+            </div>
+            <!-- Modal Footer -->
+            <div
+                class="px-5 py-2.5 bg-white border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
+                <span id="modalCaption">Live camera verification snapshot</span>
+                <a id="modalDownloadBtn" href="" target="_blank" class="text-sky-600 font-semibold hover:underline">
+                    <i class="fa-solid fa-up-right-from-square mr-1"></i>Open Full Size
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function openImageModal(imgUrl, title, caption) {
+            const modal = document.getElementById('imageLightboxModal');
+            const img = document.getElementById('modalPreviewImg');
+            const titleEl = document.getElementById('modalImageTitle');
+            const captionEl = document.getElementById('modalCaption');
+            const downloadBtn = document.getElementById('modalDownloadBtn');
+
+            if (!imgUrl) return;
+
+            img.src = imgUrl;
+            titleEl.textContent = title || 'Verification Photo';
+            captionEl.textContent = caption || 'Live camera capture';
+            downloadBtn.href = imgUrl;
+
+            modal.classList.remove('hidden');
+        }
+
+        function closeImageModal() {
+            const modal = document.getElementById('imageLightboxModal');
+            modal.classList.add('hidden');
+            document.getElementById('modalPreviewImg').src = '';
+        }
+
+        // Close on Escape key
+        document.addEventListener('keydown', function (e) {
+            if (e.key === 'Escape') closeImageModal();
+        });
+    </script>
+
+    {% block extra_scripts %}{% endblock %}
+</body>
+
+</html>

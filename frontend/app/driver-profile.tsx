@@ -13,23 +13,27 @@ import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import apiClient from '../src/api/client';
 import { getUser, removeToken } from '../src/storage/token';
+import { LanguageSelectorCard } from '../src/components/LanguageSelectorCard';
+import { useTranslation } from '../src/i18n/LanguageContext';
 
 const C = {
-  night: '#0B1220',
-  nightCard: '#121C30',
-  nightCardElevated: '#17243D',
-  nightBorder: '#1E2E4A',
-  blue: '#1565C0',
-  neon: '#00B8FF',
-  yellow: '#FFC928',
+  night: '#F8FAFC',
+  nightCard: '#FFFFFF',
+  nightCardElevated: '#FFFFFF',
+  nightBorder: '#E2E8F0',
+  blue: '#0284C7',
+  neon: '#0284C7',
+  yellow: '#D97706',
   white: '#FFFFFF',
-  red: '#E53935',
-  green: '#00C853',
-  textSub: '#8FA3BF',
-  textMuted: '#526685',
+  red: '#DC2626',
+  green: '#16A34A',
+  text: '#0F172A',
+  textSub: '#334155',
+  textMuted: '#64748B',
 };
 
 export default function DriverProfileScreen() {
+  const { t } = useTranslation();
   const [profile, setProfile] = useState<any>(null);
   const [truck, setTruck] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -83,7 +87,7 @@ export default function DriverProfileScreen() {
         <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
           <Ionicons name="arrow-back" size={22} color={C.white} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Driver Profile</Text>
+        <Text style={styles.headerTitle}>{t('profile', 'Driver Profile')}</Text>
         <View style={{ width: 40 }} />
       </View>
 
@@ -94,7 +98,7 @@ export default function DriverProfileScreen() {
           </View>
           <Text style={styles.name}>{profile?.name || 'Driver'}</Text>
           <View style={styles.rolePill}>
-            <Text style={styles.roleText}>COMMERCIAL DRIVER</Text>
+            <Text style={styles.roleText}>{t('truck_driver', 'COMMERCIAL DRIVER')}</Text>
           </View>
 
           <View style={styles.infoBox}>
@@ -137,12 +141,14 @@ export default function DriverProfileScreen() {
               {profile?.approval_status || 'APPROVED'}
             </Text>
           </View>
-
-          <TouchableOpacity style={styles.logoutButton} onPress={handleLogout} activeOpacity={0.85}>
-            <Ionicons name="log-out-outline" size={20} color={C.white} style={{ marginRight: 8 }} />
-            <Text style={styles.logoutText}>Sign Out</Text>
-          </TouchableOpacity>
         </View>
+
+        <LanguageSelectorCard />
+
+        <TouchableOpacity style={styles.logoutButton} onPress={handleLogout} activeOpacity={0.85}>
+          <Ionicons name="log-out-outline" size={20} color={C.white} style={{ marginRight: 8 }} />
+          <Text style={styles.logoutText}>{t('logout', 'Sign Out')}</Text>
+        </TouchableOpacity>
       </ScrollView>
     </SafeAreaView>
   );
@@ -167,6 +173,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingHorizontal: 16,
     paddingVertical: 14,
+    backgroundColor: C.white,
     borderBottomWidth: 1,
     borderBottomColor: C.nightBorder,
   },
@@ -174,7 +181,7 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: C.nightCard,
+    backgroundColor: '#F1F5F9',
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 1,
@@ -183,7 +190,7 @@ const styles = StyleSheet.create({
   headerTitle: {
     fontSize: 18,
     fontWeight: '800',
-    color: C.white,
+    color: C.text,
     letterSpacing: 0.5,
   },
   loadingWrap: {
@@ -204,21 +211,26 @@ const styles = StyleSheet.create({
     padding: 24,
     borderWidth: 1,
     borderColor: C.nightBorder,
+    shadowColor: '#64748B',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 10,
+    elevation: 3,
   },
   avatarWrap: {
     width: 76,
     height: 76,
     borderRadius: 38,
-    backgroundColor: 'rgba(0,184,255,0.12)',
+    backgroundColor: '#E0F2FE',
     borderWidth: 2,
-    borderColor: C.neon,
+    borderColor: '#38BDF8',
     justifyContent: 'center',
     alignItems: 'center',
     alignSelf: 'center',
     marginBottom: 14,
   },
   avatarText: {
-    color: C.neon,
+    color: C.blue,
     fontSize: 30,
     fontWeight: '800',
   },
@@ -226,16 +238,16 @@ const styles = StyleSheet.create({
     fontSize: 22,
     fontWeight: '800',
     textAlign: 'center',
-    color: C.white,
+    color: C.text,
   },
   rolePill: {
     alignSelf: 'center',
-    backgroundColor: 'rgba(0,200,83,0.12)',
+    backgroundColor: '#DCFCE7',
     borderRadius: 6,
     paddingHorizontal: 10,
     paddingVertical: 4,
     borderWidth: 1,
-    borderColor: C.green,
+    borderColor: '#86EFAC',
     marginTop: 6,
     marginBottom: 20,
   },
@@ -260,7 +272,7 @@ const styles = StyleSheet.create({
   },
   value: {
     fontSize: 15,
-    color: C.white,
+    color: C.text,
     fontWeight: '600',
   },
   subValue: {

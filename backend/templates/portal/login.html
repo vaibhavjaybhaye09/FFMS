@@ -1,0 +1,209 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <!-- Favicon -->
+    <link rel="icon" type="image/png" sizes="32x32" href="{% static 'images/icon.png' %}?v=2">
+    <link rel="shortcut icon" type="image/png" href="{% static 'images/icon.png' %}?v=2">
+    <link rel="apple-touch-icon" href="{% static 'images/icon.png' %}?v=2">
+    <title>Pump Admin Login - FuelFleet</title>
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            font-family: 'Plus Jakarta Sans', sans-serif;
+        }
+        .glass-card {
+            background: rgba(255, 255, 255, 0.40);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1.5px solid rgba(255, 255, 255, 0.65);
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.45), 0 0 25px rgba(56, 189, 248, 0.25);
+        }
+        .glass-input {
+            background: rgba(255, 255, 255, 0.65);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            border: 1.5px solid rgba(255, 255, 255, 0.85);
+            color: #000000 !important;
+        }
+        .glass-input:focus {
+            background: rgba(255, 255, 255, 0.85);
+            border-color: #0284C7;
+        }
+        .glass-pill {
+            background: rgba(255, 255, 255, 0.25);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.4);
+        }
+    </style>
+</head>
+<body class="min-h-screen flex items-center justify-center p-4 antialiased relative bg-slate-950 bg-cover bg-center bg-no-repeat bg-fixed" style="background-image: url('/media/bg/download1.jpg');">
+
+    <!-- Atmospheric Dark Overlay for Contrast & Glass Pop -->
+    <div class="fixed inset-0 bg-gradient-to-b from-slate-950/60 via-slate-900/50 to-slate-950/70 backdrop-blur-[2px]"></div>
+
+    <div class="relative z-10 max-w-md w-full my-6">
+        
+        <!-- Brand Header Block -->
+        <div class="text-center mb-6">
+            <div class="inline-flex items-center justify-center w-16 h-16 rounded-2xl glass-pill text-sky-300 shadow-xl mb-3 ring-2 ring-white/30">
+                <i class="fa-solid fa-bolt text-2xl drop-shadow-md text-amber-400"></i>
+            </div>
+            <h1 class="text-2xl font-black text-white tracking-wider uppercase drop-shadow-lg flex items-center justify-center space-x-2">
+                <span>FuelFleet</span>
+                <span class="text-[10px] tracking-widest px-2 py-0.5 rounded-full bg-amber-400 text-slate-950 font-extrabold uppercase shadow">Portal</span>
+            </h1>
+            <p class="text-xs text-sky-100 font-semibold tracking-wide mt-1 drop-shadow">Fuel Station Admin Console & Analytical Reports</p>
+        </div>
+
+        <!-- Glassmorphism Auth Card -->
+        <div class="glass-card rounded-3xl p-7 sm:p-9 relative overflow-hidden">
+            
+            <!-- Subtle Top Accent Light -->
+            <div class="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-sky-400 via-blue-500 to-indigo-500"></div>
+
+            <!-- Top Row: Badge & Language Switcher -->
+            <div class="flex items-center justify-between mb-4">
+                <span class="inline-flex items-center px-2.5 py-1 rounded-lg text-[10px] font-black tracking-wider bg-white/80 text-black border border-white/90 uppercase shadow-xs">
+                    <i class="fa-solid fa-shield-halved mr-1.5 text-black"></i>{{ t.role_badge }}
+                </span>
+                
+                <!-- Language Selector -->
+                <div class="inline-flex items-center p-0.5 bg-black/10 rounded-xl border border-white/40">
+                    <a href="{% url 'portal-set-language' 'en' %}?next={{ request.path }}" 
+                       class="px-2 py-0.5 text-[11px] font-black rounded-lg transition-all {% if current_lang == 'en' %}bg-white text-black shadow-xs{% else %}text-black/70 hover:text-black{% endif %}">
+                        EN
+                    </a>
+                    <a href="{% url 'portal-set-language' 'mr' %}?next={{ request.path }}" 
+                       class="px-2 py-0.5 text-[11px] font-black rounded-lg transition-all {% if current_lang == 'mr' %}bg-white text-black shadow-xs{% else %}text-black/70 hover:text-black{% endif %}">
+                        मराठी
+                    </a>
+                    <a href="{% url 'portal-set-language' 'hi' %}?next={{ request.path }}" 
+                       class="px-2 py-0.5 text-[11px] font-black rounded-lg transition-all {% if current_lang == 'hi' %}bg-white text-black shadow-xs{% else %}text-black/70 hover:text-black{% endif %}">
+                        हिंदी
+                    </a>
+                </div>
+            </div>
+
+            <!-- Header Title -->
+            <div class="mb-5">
+                <h2 class="text-xl font-black text-black tracking-tight">{{ t.login_title }}</h2>
+                <p class="text-xs text-black mt-0.5 font-bold">{{ t.login_sub }}</p>
+            </div>
+
+            <!-- Messages / Alerts -->
+            {% if messages %}
+            <div class="mb-4 space-y-2">
+                {% for message in messages %}
+                <div class="p-3 rounded-xl border text-xs font-bold flex items-start space-x-2 {% if message.tags == 'error' %}bg-red-50/95 text-red-950 border-red-300 shadow-sm{% else %}bg-sky-50/95 text-sky-950 border-sky-300 shadow-sm{% endif %}">
+                    <i class="fa-solid {% if message.tags == 'error' %}fa-circle-exclamation text-red-600{% else %}fa-circle-info text-sky-600{% endif %} mt-0.5 text-sm"></i>
+                    <span>{{ message }}</span>
+                </div>
+                {% endfor %}
+            </div>
+            {% endif %}
+
+            <!-- Form -->
+            <form method="POST" action="{% url 'portal-login' %}" class="space-y-4">
+                {% csrf_token %}
+                
+                <!-- Identifier Input -->
+                <div>
+                    <label class="block text-[11px] font-black text-black uppercase tracking-wider mb-1.5">
+                        {{ t.username_or_mobile }}
+                    </label>
+                    <div class="relative">
+                        <div class="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-black">
+                            <i class="fa-regular fa-user text-sm"></i>
+                        </div>
+                        <input 
+                            type="text" 
+                            name="identifier" 
+                            value="{{ identifier|default:'' }}"
+                            required
+                            placeholder="e.g. vaibhavja or 9356889170" 
+                            class="glass-input block w-full pl-10 pr-3 py-3 rounded-xl text-black text-sm font-bold placeholder-slate-700 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-transparent transition-all shadow-inner"
+                        >
+                    </div>
+                </div>
+
+                <!-- Password Input -->
+                <div>
+                    <div class="flex items-center justify-between mb-1.5">
+                        <label class="block text-[11px] font-black text-black uppercase tracking-wider">
+                            {{ t.password }}
+                        </label>
+                    </div>
+                    <div class="relative">
+                        <div class="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-black">
+                            <i class="fa-solid fa-lock text-sm"></i>
+                        </div>
+                        <input 
+                            type="password" 
+                            id="passwordField" 
+                            name="password" 
+                            required
+                            placeholder="•••••••••" 
+                            class="glass-input block w-full pl-10 pr-10 py-3 rounded-xl text-black text-sm font-bold placeholder-slate-700 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-transparent transition-all shadow-inner"
+                        >
+                        <button 
+                            type="button" 
+                            onclick="togglePassword()" 
+                            class="absolute inset-y-0 right-0 pr-3.5 flex items-center text-black hover:text-slate-800 transition-colors"
+                        >
+                            <i id="eyeIcon" class="fa-regular fa-eye text-sm"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Submit Button -->
+                <button 
+                    type="submit" 
+                    class="w-full mt-2 py-3.5 px-4 bg-gradient-to-r from-sky-500 via-sky-600 to-blue-600 hover:from-sky-600 hover:to-blue-700 text-white font-black text-sm rounded-xl shadow-lg shadow-sky-600/30 hover:shadow-sky-600/40 hover:scale-[1.01] active:scale-[0.99] transition-all flex items-center justify-center space-x-2"
+                >
+                    <span>{{ t.sign_in_btn }}</span>
+                    <i class="fa-solid fa-arrow-right text-xs"></i>
+                </button>
+            </form>
+
+            <!-- Support Note -->
+            <div class="mt-5 pt-4 border-t border-slate-300/60 text-center">
+                <p class="text-[11px] text-black font-bold">
+                    <i class="fa-solid fa-lock text-[10px] mr-1 text-black"></i>
+                    {{ t.security_note }}
+                </p>
+            </div>
+        </div>
+
+        <div class="text-center mt-5 text-xs text-slate-300 drop-shadow">
+            FuelFleet System &copy; {% now "Y" %} &bull; Bharat Petroleum Station Console
+        </div>
+    </div>
+
+    <script>
+        function togglePassword() {
+            const pwd = document.getElementById('passwordField');
+            const icon = document.getElementById('eyeIcon');
+            if (pwd.type === 'password') {
+                pwd.type = 'text';
+                icon.classList.remove('fa-eye');
+                icon.classList.add('fa-eye-slash');
+            } else {
+                pwd.type = 'password';
+                icon.classList.remove('fa-eye-slash');
+                icon.classList.add('fa-eye');
+            }
+        }
+    </script>
+</body>
+</html>

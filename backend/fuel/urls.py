@@ -3,6 +3,7 @@ from .views import (
     LoginAPIView,
     LogoutAPIView,
     ChangePasswordAPIView,
+    UserLanguageAPIView,
     SuperAdminPumpAdminCreateAPIView,
     SuperAdminPumpAdminListAPIView,
     PumpAdminMyPumpAPIView,
@@ -10,10 +11,14 @@ from .views import (
     PumpAdminCustomerListAPIView,
     PumpAdminOperatorCreateAPIView,
     PumpAdminOperatorListAPIView,
+    PumpAdminOperatorStatusAPIView,
+    PumpAdminOperatorDeleteAPIView,
     PumpAdminDashboardStatsAPIView,
     CustomerTruckListCreateAPIView,
     CustomerDriverCreateAPIView,
     CustomerAvailableDriversAPIView,
+    CustomerDriverStatusAPIView,
+    CustomerDriverDeleteAPIView,
     CustomerFuelRequestsAPIView,
     CustomerDashboardStatsAPIView,
     TruckCreateAPIView,
@@ -37,6 +42,7 @@ from .views import (
     VerifyFuelRequestVehicleAPIView,
     ManualVerifyFuelRequestAPIView,
     OperatorPumpRequestsAPIView,
+    OperatorCompletedRequestsAPIView,
 )
 
 urlpatterns = [
@@ -44,6 +50,7 @@ urlpatterns = [
     path("login/", LoginAPIView.as_view(), name="login"),
     path("logout/", LogoutAPIView.as_view(), name="logout"),
     path("change-password/", ChangePasswordAPIView.as_view(), name="change-password"),
+    path("user/language/", UserLanguageAPIView.as_view(), name="user-language"),
     
     # Super Admin endpoints
     path("admin/pump-admins/", SuperAdminPumpAdminListAPIView.as_view(), name="admin-pump-admin-list"),
@@ -55,6 +62,8 @@ urlpatterns = [
     path("pump-admin/customers/create/", PumpAdminCustomerCreateAPIView.as_view(), name="pump-admin-customer-create"),
     path("pump-admin/operators/", PumpAdminOperatorListAPIView.as_view(), name="pump-admin-operator-list"),
     path("pump-admin/operators/create/", PumpAdminOperatorCreateAPIView.as_view(), name="pump-admin-operator-create"),
+    path("pump-admin/operators/<int:operator_id>/status/", PumpAdminOperatorStatusAPIView.as_view(), name="pump-admin-operator-status"),
+    path("pump-admin/operators/<int:operator_id>/delete/", PumpAdminOperatorDeleteAPIView.as_view(), name="pump-admin-operator-delete"),
     path("pump-admin/dashboard/", PumpAdminDashboardStatsAPIView.as_view(), name="pump-admin-dashboard"),
 
     # Truck Owner (Customer) endpoints
@@ -62,6 +71,8 @@ urlpatterns = [
     path("customer/trucks/create/", CustomerTruckListCreateAPIView.as_view(), name="customer-truck-create"),
     path("customer/drivers/", CustomerAvailableDriversAPIView.as_view(), name="customer-available-drivers"),
     path("customer/drivers/create/", CustomerDriverCreateAPIView.as_view(), name="customer-driver-create"),
+    path("customer/drivers/<int:driver_id>/status/", CustomerDriverStatusAPIView.as_view(), name="customer-driver-status"),
+    path("customer/drivers/<int:driver_id>/delete/", CustomerDriverDeleteAPIView.as_view(), name="customer-driver-delete"),
     path("customer/fuel-requests/", CustomerFuelRequestsAPIView.as_view(), name="customer-fuel-requests"),
     path("customer/dashboard/", CustomerDashboardStatsAPIView.as_view(), name="customer-dashboard"),
 
@@ -91,6 +102,7 @@ urlpatterns = [
     path("fuel-requests/<int:fuel_request_id>/reject/", RejectFuelRequestAPIView.as_view(), name="fuel-request-reject"),
     path("fuel-requests/<int:fuel_request_id>/complete/", CompleteFuelRequestAPIView.as_view(), name="fuel-request-complete"),
     path("fuel-requests/operator-queue/", OperatorPumpRequestsAPIView.as_view(), name="fuel-requests-operator-queue"),
+    path("fuel-requests/operator-completed/", OperatorCompletedRequestsAPIView.as_view(), name="fuel-requests-operator-completed"),
 
     # Legacy/compatibility aliases
     path("fuel-requests/<int:fuel_request_id>/verify-vehicle/", VerifyFuelRequestVehicleAPIView.as_view(), name="fuel-request-verify-vehicle"),

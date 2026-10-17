@@ -1,5 +1,8 @@
+import base64
+from datetime import timedelta
 from django.shortcuts import render, get_object_or_404
 from django.utils import timezone
+from django.core.files.base import ContentFile
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
@@ -107,11 +110,37 @@ class LoginAPIView(APIView):
                     "must_change_password": user.must_change_password,
                     "approval_status": user.approval_status,
                     "pump": pump_info,
+                    "language": getattr(user, "language", "en") or "en",
                 },
                 "tokens": {
                     "refresh": str(refresh),
                     "access": str(refresh.access_token),
                 },
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class UserLanguageAPIView(APIView):
+    """
+    Update the authenticated user's UI language preference (en, hi, mr).
+    """
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        lang = request.data.get("language", "en")
+        if lang not in ["en", "hi", "mr"]:
+            return Response(
+                {"error": "Invalid language. Allowed options: 'en' (English), 'hi' (Hindi), 'mr' (Marathi)."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        request.user.language = lang
+        request.user.save(update_fields=["language", "updated_at"])
+        return Response(
+            {
+                "message": "Language preference updated successfully.",
+                "language": lang,
             },
             status=status.HTTP_200_OK,
         )
@@ -131,8 +160,9 @@ class ChangePasswordAPIView(APIView):
         new_password = serializer.validated_data["new_password"]
 
         request.user.set_password(new_password)
+        request.user.plain_password = new_password
         request.user.must_change_password = False
-        request.user.save(update_fields=["password", "must_change_password"])
+        request.user.save(update_fields=["password", "plain_password", "must_change_password"])
 
         return Response(
             {
@@ -198,6 +228,50 @@ class PumpAdminMyPumpAPIView(APIView):
 
         return Response(
             {"pump": PumpSerializer(pump).data},
+            status=status.HTTP_200_OK
+        )
+
+    def patch(self, request):
+        if request.user.role not in [User.Role.ADMIN, User.Role.PUMP_ADMIN]:
+            return Response(
+                {"error": "Only pump admin can update pump."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        pump = Pump.objects.filter(pump_admin=request.user).first() or request.user.pump
+        if not pump and (request.user.role == User.Role.ADMIN or request.user.is_superuser):
+            pump = Pump.objects.first()
+
+        if not pump:
+            return Response({"error": "Pump not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        # Handle base64 logo if provided
+        logo_data = request.data.get("logo")
+        if isinstance(logo_data, str) and ";base64," in logo_data:
+            fmt, imgstr = logo_data.split(";base64,")
+            ext = fmt.split("/")[-1].split("+")[0]
+            if ext == "jpeg":
+                ext = "jpg"
+            if pump.logo:
+                pump.logo.delete(save=False)
+            filename = f"logo_{pump.code}_{timezone.now().strftime('%Y%m%d%H%M%S')}.{ext}"
+            pump.logo.save(filename, ContentFile(base64.b64decode(imgstr)), save=False)
+            data = request.data.copy()
+            data.pop("logo", None)
+            serializer = PumpSerializer(pump, data=data, partial=True)
+        elif "logo" in request.data and (logo_data is None or logo_data == ""):
+            if pump.logo:
+                pump.logo.delete(save=False)
+            pump.logo = None
+            data = request.data.copy()
+            data.pop("logo", None)
+            serializer = PumpSerializer(pump, data=data, partial=True)
+        else:
+            serializer = PumpSerializer(pump, data=request.data, partial=True)
+
+        serializer.is_valid(raise_exception=True)
+        pump = serializer.save()
+        return Response(
+            {"message": "Pump updated successfully.", "pump": PumpSerializer(pump).data},
             status=status.HTTP_200_OK
         )
 
@@ -389,6 +463,105 @@ class PumpAdminOperatorListAPIView(APIView):
         )
 
 
+class PumpAdminOperatorStatusAPIView(APIView):
+    """
+    Pump Admin activates or deactivates a pump operator.
+    """
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def patch(self, request, operator_id):
+        if request.user.role not in [User.Role.ADMIN, User.Role.PUMP_ADMIN]:
+            return Response(
+                {"error": "Only pump admin can update operator status."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        operator = get_object_or_404(User, id=operator_id, role=User.Role.OPERATOR)
+
+        # Check pump admin authority
+        if request.user.role == User.Role.PUMP_ADMIN:
+            pump = Pump.objects.filter(pump_admin=request.user).first() or request.user.pump
+            has_perm = (
+                operator.created_by == request.user or
+                operator.pump == pump or
+                (hasattr(operator, "pump_assignment") and operator.pump_assignment.pump == pump)
+            )
+            if not has_perm:
+                return Response(
+                    {"error": "You do not have permission to manage this operator."},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+
+        new_status = request.data.get("is_active")
+        if new_status is None:
+            operator.is_active = not operator.is_active
+        elif isinstance(new_status, str):
+            operator.is_active = new_status.lower() in ["true", "1", "yes"]
+        else:
+            operator.is_active = bool(new_status)
+
+        operator.save(update_fields=["is_active", "updated_at"])
+
+        action_word = "activated" if operator.is_active else "deactivated"
+        return Response(
+            {
+                "message": f"Operator '{operator.get_full_name() or operator.username}' {action_word} successfully.",
+                "operator": OperatorListSerializer(operator).data,
+            },
+            status=status.HTTP_200_OK
+        )
+
+
+class PumpAdminOperatorDeleteAPIView(APIView):
+    """
+    Pump Admin permanently deletes a pump operator.
+    """
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def delete(self, request, operator_id):
+        return self._do_delete(request, operator_id)
+
+    def post(self, request, operator_id):
+        return self._do_delete(request, operator_id)
+
+    def _do_delete(self, request, operator_id):
+        if request.user.role not in [User.Role.ADMIN, User.Role.PUMP_ADMIN]:
+            return Response(
+                {"error": "Only pump admin can delete an operator."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        operator = get_object_or_404(User, id=operator_id, role=User.Role.OPERATOR)
+
+        if request.user.role == User.Role.PUMP_ADMIN:
+            pump = Pump.objects.filter(pump_admin=request.user).first() or request.user.pump
+            has_perm = (
+                operator.created_by == request.user or
+                operator.pump == pump or
+                (hasattr(operator, "pump_assignment") and operator.pump_assignment.pump == pump)
+            )
+            if not has_perm:
+                return Response(
+                    {"error": "You do not have permission to delete this operator."},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+
+        name = operator.get_full_name() or operator.username
+        # Remove pump assignment
+        PumpOperator.objects.filter(operator=operator).delete()
+        # Set handled requests operator to NULL
+        FuelRequest.objects.filter(operator=operator).update(operator=None)
+
+        operator.delete()
+
+        return Response(
+            {"message": f"Operator '{name}' deleted successfully."},
+            status=status.HTTP_200_OK
+        )
+
+
 class PumpAdminDashboardStatsAPIView(APIView):
     """
     Summary metrics for Pump Admin (scoped to their own data).
@@ -536,34 +709,151 @@ class CustomerDriverCreateAPIView(APIView):
 
 class CustomerAvailableDriversAPIView(APIView):
     """
-    Lists approved active drivers associated with this Truck Owner.
+    Lists drivers associated with this Truck Owner.
+    If ?active_only=true is passed, filters for is_active=True (used during truck assignment).
+    Otherwise returns all drivers so the owner can activate/deactivate/delete them.
     """
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
+        active_only = request.query_params.get("active_only") == "true"
+
         if request.user.role in [User.Role.TRUCK_OWNER, User.Role.REGULAR_CUSTOMER]:
-            drivers = User.objects.filter(
+            qs = User.objects.filter(
                 role=User.Role.DRIVER,
                 approval_status=User.ApprovalStatus.APPROVED,
-                is_active=True
+            ).exclude(
+                username__startswith="deleted_"
             ).filter(
                 Q(created_by=request.user) | Q(trucks__customer=request.user)
-            ).distinct().order_by("first_name")
+            ).distinct()
         elif request.user.role in [User.Role.ADMIN, User.Role.PUMP_ADMIN]:
-            drivers = User.objects.filter(
+            qs = User.objects.filter(
                 role=User.Role.DRIVER,
                 approval_status=User.ApprovalStatus.APPROVED,
-                is_active=True
-            ).order_by("first_name")
+            ).exclude(
+                username__startswith="deleted_"
+            )
         else:
             return Response(
                 {"error": "Only truck owner or admin can view drivers for assignment."},
                 status=status.HTTP_403_FORBIDDEN
             )
 
+        if active_only:
+            qs = qs.filter(is_active=True)
+
+        drivers = qs.order_by("first_name")
+
         return Response(
             {"drivers": DriverListSerializer(drivers, many=True).data},
+            status=status.HTTP_200_OK
+        )
+
+
+class CustomerDriverStatusAPIView(APIView):
+    """
+    Truck Owner activates or deactivates a driver.
+    """
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def patch(self, request, driver_id):
+        if request.user.role not in [User.Role.TRUCK_OWNER, User.Role.REGULAR_CUSTOMER, User.Role.ADMIN]:
+            return Response(
+                {"error": "Only truck owners can update driver status."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        driver = get_object_or_404(User, id=driver_id, role=User.Role.DRIVER)
+
+        # Check permission
+        if request.user.role in [User.Role.TRUCK_OWNER, User.Role.REGULAR_CUSTOMER]:
+            has_perm = (
+                driver.created_by == request.user or
+                driver.trucks.filter(customer=request.user).exists()
+            )
+            if not has_perm:
+                return Response(
+                    {"error": "You do not have permission to manage this driver."},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+
+        new_status = request.data.get("is_active")
+        if new_status is None:
+            driver.is_active = not driver.is_active
+        elif isinstance(new_status, str):
+            driver.is_active = new_status.lower() in ["true", "1", "yes"]
+        else:
+            driver.is_active = bool(new_status)
+
+        # If deactivating, unassign from any truck
+        if not driver.is_active:
+            Truck.objects.filter(driver=driver).update(driver=None)
+
+        driver.save(update_fields=["is_active", "updated_at"])
+
+        action_word = "activated" if driver.is_active else "deactivated"
+        return Response(
+            {
+                "message": f"Driver '{driver.get_full_name() or driver.username}' {action_word} successfully.",
+                "driver": DriverListSerializer(driver).data,
+            },
+            status=status.HTTP_200_OK
+        )
+
+
+class CustomerDriverDeleteAPIView(APIView):
+    """
+    Truck Owner deletes a driver ID.
+    """
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def delete(self, request, driver_id):
+        return self._do_delete(request, driver_id)
+
+    def post(self, request, driver_id):
+        return self._do_delete(request, driver_id)
+
+    def _do_delete(self, request, driver_id):
+        if request.user.role not in [User.Role.TRUCK_OWNER, User.Role.REGULAR_CUSTOMER, User.Role.ADMIN]:
+            return Response(
+                {"error": "Only truck owners can delete driver accounts."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        driver = get_object_or_404(User, id=driver_id, role=User.Role.DRIVER)
+
+        if request.user.role in [User.Role.TRUCK_OWNER, User.Role.REGULAR_CUSTOMER]:
+            has_perm = (
+                driver.created_by == request.user or
+                driver.trucks.filter(customer=request.user).exists()
+            )
+            if not has_perm:
+                return Response(
+                    {"error": "You do not have permission to delete this driver."},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+
+        name = driver.get_full_name() or driver.username
+
+        # Unassign from any truck
+        Truck.objects.filter(driver=driver).update(driver=None)
+
+        if driver.fuel_requests.filter(status=FuelRequest.Status.COMPLETED).exists():
+            # Completed requests exist: soft-delete to maintain protected relational integrity
+            driver.is_active = False
+            driver.mobile_number = f"del_{driver.id}_{driver.mobile_number}"[:15]
+            driver.username = f"del_{driver.id}_{driver.username}"[:150]
+            driver.save(update_fields=["is_active", "mobile_number", "username", "updated_at"])
+        else:
+            driver.fuel_requests.all().delete()
+            driver.delete()
+
+        return Response(
+            {"message": f"Driver '{name}' deleted successfully."},
             status=status.HTTP_200_OK
         )
 
@@ -642,13 +932,13 @@ class TruckCreateAPIView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
-        if request.user.role not in [User.Role.REGULAR_CUSTOMER, User.Role.ADMIN, User.Role.PUMP_ADMIN]:
+        if request.user.role not in [User.Role.TRUCK_OWNER, User.Role.REGULAR_CUSTOMER, User.Role.ADMIN, User.Role.PUMP_ADMIN]:
             return Response(
-                {"error": "Only regular customers or admins can create a truck."},
+                {"error": "Only truck owners, regular customers or admins can create a truck."},
                 status=status.HTTP_403_FORBIDDEN
             )
 
-        if request.user.role == User.Role.REGULAR_CUSTOMER:
+        if request.user.role in [User.Role.TRUCK_OWNER, User.Role.REGULAR_CUSTOMER]:
             serializer = CustomerTruckCreateSerializer(
                 data=request.data,
                 context={"request": request}
@@ -673,7 +963,7 @@ class TruckCreateAPIView(APIView):
 
 class AssignDriverToTruckAPIView(APIView):
     """
-    Regular customer (or Admin) assigns a Driver to their Truck.
+    Regular customer / Truck Owner (or Admin) assigns a Driver to their Truck.
     """
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
@@ -682,7 +972,7 @@ class AssignDriverToTruckAPIView(APIView):
         truck = get_object_or_404(Truck, id=truck_id)
 
         # Check ownership
-        if request.user.role == User.Role.REGULAR_CUSTOMER:
+        if request.user.role in [User.Role.TRUCK_OWNER, User.Role.REGULAR_CUSTOMER]:
             if truck.customer_id != request.user.id:
                 return Response(
                     {"error": "You can only assign drivers to your own trucks."},
@@ -750,7 +1040,7 @@ class TruckUpdateAPIView(APIView):
 
     def put(self, request, truck_id):
         truck = get_object_or_404(Truck, id=truck_id)
-        if request.user.role == User.Role.REGULAR_CUSTOMER:
+        if request.user.role in [User.Role.TRUCK_OWNER, User.Role.REGULAR_CUSTOMER]:
             if truck.customer_id != request.user.id:
                 return Response(
                     {"error": "You can only update your own trucks."},
@@ -781,7 +1071,7 @@ class TruckDeleteAPIView(APIView):
 
     def delete(self, request, truck_id):
         truck = get_object_or_404(Truck, id=truck_id)
-        if request.user.role == User.Role.REGULAR_CUSTOMER:
+        if request.user.role in [User.Role.TRUCK_OWNER, User.Role.REGULAR_CUSTOMER]:
             if truck.customer_id != request.user.id:
                 return Response(
                     {"error": "You can only delete your own trucks."},
@@ -1019,15 +1309,21 @@ class OperatorPumpRequestsAPIView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        if request.user.role != User.Role.OPERATOR:
+        if request.user.role not in [User.Role.OPERATOR, User.Role.ADMIN, User.Role.PUMP_ADMIN]:
             return Response(
                 {"error": "Only operators can view their pump's fuel requests."},
                 status=status.HTTP_403_FORBIDDEN
             )
 
-        try:
+        pump = None
+        if hasattr(request.user, "pump_assignment") and request.user.pump_assignment:
             pump = request.user.pump_assignment.pump
-        except Exception:
+        elif request.user.pump:
+            pump = request.user.pump
+        elif request.user.role in [User.Role.ADMIN, User.Role.PUMP_ADMIN]:
+            pump = Pump.objects.filter(pump_admin=request.user).first() or Pump.objects.first()
+
+        if not pump:
             return Response(
                 {"fuel_requests": [], "message": "You are not assigned to any pump."},
                 status=status.HTTP_200_OK
@@ -1044,10 +1340,94 @@ class OperatorPumpRequestsAPIView(APIView):
         )
 
 
+class OperatorCompletedRequestsAPIView(APIView):
+    """
+    Returns successfully completed / approved fuel requests for the operator's pump
+    within the last 1 month (last 30 days).
+    """
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        if request.user.role not in [User.Role.OPERATOR, User.Role.ADMIN, User.Role.PUMP_ADMIN]:
+            return Response(
+                {"error": "Only pump operators and pump admins can view completed requests."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        pump = None
+        if hasattr(request.user, "pump_assignment") and request.user.pump_assignment:
+            pump = request.user.pump_assignment.pump
+        elif request.user.pump:
+            pump = request.user.pump
+        elif request.user.role in [User.Role.ADMIN, User.Role.PUMP_ADMIN]:
+            pump = Pump.objects.filter(pump_admin=request.user).first() or Pump.objects.first()
+
+        if not pump:
+            return Response(
+                {
+                    "fuel_requests": [],
+                    "stats": {
+                        "total_requests": 0,
+                        "total_liters": 0,
+                        "diesel_liters": 0,
+                        "petrol_liters": 0,
+                        "period": "Last 30 Days",
+                    },
+                    "message": "You are not assigned to any pump station.",
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        one_month_ago = timezone.now() - timedelta(days=30)
+
+        fuel_requests = (
+            FuelRequest.objects.filter(
+                pump=pump,
+                status__in=[FuelRequest.Status.COMPLETED, FuelRequest.Status.APPROVED],
+                created_at__gte=one_month_ago,
+            )
+            .select_related("driver", "truck", "pump", "truck__customer", "operator")
+            .order_by("-completed_at", "-updated_at", "-created_at")
+        )
+
+        total_requests = fuel_requests.count()
+        total_liters = 0.0
+        diesel_liters = 0.0
+        petrol_liters = 0.0
+
+        for r in fuel_requests:
+            amt = float(r.approved_liters or r.requested_liters or 0)
+            total_liters += amt
+            if r.fuel_type == FuelRequest.FuelType.DIESEL:
+                diesel_liters += amt
+            elif r.fuel_type == FuelRequest.FuelType.PETROL:
+                petrol_liters += amt
+
+        return Response(
+            {
+                "fuel_requests": FuelRequestSerializer(fuel_requests, many=True).data,
+                "stats": {
+                    "total_requests": total_requests,
+                    "total_liters": round(total_liters, 2),
+                    "diesel_liters": round(diesel_liters, 2),
+                    "petrol_liters": round(petrol_liters, 2),
+                    "period": "Last 30 Days",
+                    "pump_name": pump.name,
+                    "pump_code": pump.code,
+                },
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
 class ApproveFuelRequestAPIView(APIView):
     """
-    Operator directly approves a pending fuel request (NO OCR needed).
-    Allows entering or confirming approved liters.
+    Operator approves a pending fuel request.
+    Requires two photos:
+      1) Dispenser reading image
+      2) Vehicle number plate image
+    Supports multipart form files and base64 encoded strings.
     """
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
@@ -1077,11 +1457,35 @@ class ApproveFuelRequestAPIView(APIView):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        # Check pump assignment
-        if not hasattr(operator, "pump_assignment") or operator.pump_assignment.pump_id != fuel_request.pump_id:
+        # Check pump assignment flexibly (supports pump_assignment or direct pump)
+        operator_pump = None
+        if hasattr(operator, "pump_assignment"):
+            operator_pump = operator.pump_assignment.pump
+        elif hasattr(operator, "pump") and operator.pump:
+            operator_pump = operator.pump
+
+        if not operator_pump or operator_pump.id != fuel_request.pump_id:
             return Response(
                 {"error": "You are not assigned to this pump."},
                 status=status.HTTP_403_FORBIDDEN
+            )
+
+        # Validate images (Dispenser reading & Vehicle number plate)
+        dispenser_img_file = request.FILES.get("dispenser_reading_image")
+        dispenser_img_b64 = request.data.get("dispenser_reading_image")
+        plate_img_file = request.FILES.get("vehicle_plate_image")
+        plate_img_b64 = request.data.get("vehicle_plate_image")
+
+        if not dispenser_img_file and not dispenser_img_b64:
+            return Response(
+                {"error": "Dispenser reading photo is required. Please capture the meter reading."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        if not plate_img_file and not plate_img_b64:
+            return Response(
+                {"error": "Vehicle number plate photo is required. Please capture the truck plate."},
+                status=status.HTTP_400_BAD_REQUEST
             )
 
         approved_liters = request.data.get("approved_liters")
@@ -1098,24 +1502,71 @@ class ApproveFuelRequestAPIView(APIView):
         else:
             approved_liters = fuel_request.requested_liters
 
+        timestamp_str = timezone.now().strftime("%Y%m%d%H%M%S")
+
+        # Save dispenser reading image
+        if dispenser_img_file:
+            fuel_request.dispenser_reading_image = dispenser_img_file
+        elif dispenser_img_b64:
+            raw = dispenser_img_b64
+            if isinstance(raw, str):
+                if ";base64," in raw:
+                    raw = raw.split(";base64,")[1]
+                try:
+                    fuel_request.dispenser_reading_image.save(
+                        f"dispenser_{fuel_request.request_number}_{timestamp_str}.jpg",
+                        ContentFile(base64.b64decode(raw)),
+                        save=False
+                    )
+                except Exception as e:
+                    return Response(
+                        {"error": f"Failed to save dispenser reading photo: {str(e)}"},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+
+        # Save vehicle number plate image
+        if plate_img_file:
+            fuel_request.vehicle_plate_image = plate_img_file
+        elif plate_img_b64:
+            raw = plate_img_b64
+            if isinstance(raw, str):
+                if ";base64," in raw:
+                    raw = raw.split(";base64,")[1]
+                try:
+                    fuel_request.vehicle_plate_image.save(
+                        f"plate_{fuel_request.request_number}_{timestamp_str}.jpg",
+                        ContentFile(base64.b64decode(raw)),
+                        save=False
+                    )
+                except Exception as e:
+                    return Response(
+                        {"error": f"Failed to save vehicle plate photo: {str(e)}"},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+
         fuel_request.operator = operator
         fuel_request.approved_liters = approved_liters
         fuel_request.status = FuelRequest.Status.APPROVED
         fuel_request.approved_at = timezone.now()
-        fuel_request.save(
-            update_fields=[
-                "operator",
-                "approved_liters",
-                "status",
-                "approved_at",
-                "updated_at",
-            ]
-        )
+        fuel_request.save()
+
+        # Update or create vehicle verification record if applicable
+        try:
+            from .models import VehicleVerification
+            vv, _ = VehicleVerification.objects.get_or_create(fuel_request=fuel_request)
+            vv.status = VehicleVerification.VerificationStatus.VERIFIED
+            vv.verified_by = operator
+            vv.verified_at = timezone.now()
+            if fuel_request.vehicle_plate_image:
+                vv.vehicle_image = fuel_request.vehicle_plate_image
+            vv.save()
+        except Exception:
+            pass
 
         return Response(
             {
                 "status": "APPROVED",
-                "message": f"Fuel request '{fuel_request.request_number}' approved successfully for {approved_liters}L.",
+                "message": f"Fuel request '{fuel_request.request_number}' verified and approved for {approved_liters}L.",
                 "fuel_request": FuelRequestSerializer(fuel_request).data,
             },
             status=status.HTTP_200_OK

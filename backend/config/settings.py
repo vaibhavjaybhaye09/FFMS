@@ -62,17 +62,21 @@ ROOT_URLCONF = 'config.urls'
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [],
+        'DIRS': [BASE_DIR / 'templates'],
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
                 'django.template.context_processors.request',
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
+                'fuel.portal_i18n.portal_language_context',
             ],
         },
     },
 ]
+
+LOGIN_URL = '/portal/login/'
+LOGIN_REDIRECT_URL = '/portal/dashboard/'
 
 WSGI_APPLICATION = 'config.wsgi.application'
 
@@ -128,7 +132,10 @@ USE_TZ = True
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
 
-STATIC_URL = 'static/'
+STATIC_URL = '/static/'
+STATICFILES_DIRS = [
+    BASE_DIR / 'static',
+]
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
@@ -140,3 +147,6 @@ AUTH_USER_MODEL = "fuel.User"
 # Clients can still use trailing-slash URLs; this avoids RuntimeError on POST
 # when URLs are called without the trailing slash.
 APPEND_SLASH = False
+
+MEDIA_URL = '/media/'
+MEDIA_ROOT = BASE_DIR / 'media'

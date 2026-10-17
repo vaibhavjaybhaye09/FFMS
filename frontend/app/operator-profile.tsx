@@ -13,23 +13,30 @@ import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import apiClient from '../src/api/client';
 import { getUser, removeToken } from '../src/storage/token';
+import { LanguageSelectorCard } from '../src/components/LanguageSelectorCard';
+import { useTranslation } from '../src/i18n/LanguageContext';
 
 const C = {
-  night: '#0B1220',
-  nightCard: '#121C30',
-  nightCardElevated: '#17243D',
-  nightBorder: '#1E2E4A',
-  blue: '#1565C0',
-  neon: '#00B8FF',
-  yellow: '#FFC928',
+  bg: '#F8FAFC',
+  card: '#FFFFFF',
+  border: '#E2E8F0',
+  text: '#0F172A',
+  textSub: '#475569',
+  textMuted: '#64748B',
+  primary: '#0284C7',
+  neon: '#0284C7',
+  blue: '#0284C7',
+  yellow: '#D97706',
   white: '#FFFFFF',
-  red: '#E53935',
-  green: '#00C853',
-  textSub: '#8FA3BF',
-  textMuted: '#526685',
+  red: '#DC2626',
+  green: '#16A34A',
+  night: '#F8FAFC',
+  nightCard: '#FFFFFF',
+  nightBorder: '#E2E8F0',
 };
 
 export default function OperatorProfileScreen() {
+  const { t } = useTranslation();
   const [profile, setProfile] = useState<any>(null);
   const [pump, setPump] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -69,21 +76,21 @@ export default function OperatorProfileScreen() {
   if (loading) {
     return (
       <View style={styles.loadingWrap}>
-        <ActivityIndicator size="large" color={C.neon} />
+        <ActivityIndicator size="large" color={C.primary} />
       </View>
     );
   }
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <StatusBar barStyle="light-content" backgroundColor={C.night} />
+      <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
       <View style={styles.neonBar} />
 
       <View style={styles.headerRow}>
         <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
-          <Ionicons name="arrow-back" size={22} color={C.white} />
+          <Ionicons name="arrow-back" size={20} color={C.text} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Operator Profile</Text>
+        <Text style={styles.headerTitle}>{t('profile', 'Operator Profile')}</Text>
         <View style={{ width: 40 }} />
       </View>
 
@@ -94,7 +101,7 @@ export default function OperatorProfileScreen() {
           </View>
           <Text style={styles.name}>{profile?.name || 'Operator'}</Text>
           <View style={styles.rolePill}>
-            <Text style={styles.roleText}>PUMP DISPENSER OPERATOR</Text>
+            <Text style={styles.roleText}>{t('pump_operator', 'PUMP DISPENSER OPERATOR')}</Text>
           </View>
 
           <View style={styles.infoBox}>
@@ -111,7 +118,7 @@ export default function OperatorProfileScreen() {
             <Text style={styles.label}>Station Assignment</Text>
             {pump ? (
               <>
-                <Text style={[styles.value, { color: C.yellow }]}>{pump.name} ({pump.code})</Text>
+                <Text style={[styles.value, { color: C.primary, fontWeight: '700' }]}>{pump.name} ({pump.code})</Text>
                 <Text style={styles.subValue}>
                   {pump.city} • {pump.is_active ? 'Station Online' : 'Inactive'}
                 </Text>
@@ -137,11 +144,23 @@ export default function OperatorProfileScreen() {
             </Text>
           </View>
 
-          <TouchableOpacity style={styles.logoutButton} onPress={handleLogout} activeOpacity={0.85}>
-            <Ionicons name="log-out-outline" size={20} color={C.white} style={{ marginRight: 8 }} />
-            <Text style={styles.logoutText}>Sign Out</Text>
+          <TouchableOpacity
+            style={styles.historyButton}
+            onPress={() => router.push('/operator-completed')}
+            activeOpacity={0.85}
+          >
+            <Ionicons name="time-outline" size={20} color={C.primary} style={{ marginRight: 8 }} />
+            <Text style={styles.historyText}>View Completed Requests (Last 30 Days)</Text>
+            <Ionicons name="chevron-forward" size={18} color={C.primary} style={{ marginLeft: 'auto' }} />
           </TouchableOpacity>
         </View>
+
+        <LanguageSelectorCard />
+
+        <TouchableOpacity style={styles.logoutButton} onPress={handleLogout} activeOpacity={0.85}>
+          <Ionicons name="log-out-outline" size={20} color={C.white} style={{ marginRight: 8 }} />
+          <Text style={styles.logoutText}>{t('logout', 'Sign Out')}</Text>
+        </TouchableOpacity>
       </ScrollView>
     </SafeAreaView>
   );
@@ -150,15 +169,11 @@ export default function OperatorProfileScreen() {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: C.night,
+    backgroundColor: C.bg,
   },
   neonBar: {
     height: 3,
-    backgroundColor: C.neon,
-    shadowColor: C.neon,
-    shadowOpacity: 1,
-    shadowRadius: 8,
-    elevation: 8,
+    backgroundColor: C.primary,
   },
   headerRow: {
     flexDirection: 'row',
@@ -166,58 +181,63 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingHorizontal: 16,
     paddingVertical: 14,
+    backgroundColor: C.white,
     borderBottomWidth: 1,
-    borderBottomColor: C.nightBorder,
+    borderBottomColor: C.border,
   },
   backBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: C.nightCard,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: '#F1F5F9',
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: C.nightBorder,
+    borderColor: C.border,
   },
   headerTitle: {
     fontSize: 18,
     fontWeight: '800',
-    color: C.white,
-    letterSpacing: 0.5,
+    color: C.text,
+    letterSpacing: 0.3,
   },
   loadingWrap: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: C.night,
+    backgroundColor: C.bg,
   },
   container: {
     flexGrow: 1,
-    backgroundColor: C.night,
+    backgroundColor: C.bg,
     padding: 20,
     justifyContent: 'center',
   },
   card: {
-    backgroundColor: C.nightCard,
+    backgroundColor: C.white,
     borderRadius: 20,
     padding: 24,
     borderWidth: 1,
-    borderColor: C.nightBorder,
+    borderColor: C.border,
+    shadowColor: '#000',
+    shadowOpacity: 0.05,
+    shadowRadius: 10,
+    elevation: 2,
   },
   avatarWrap: {
     width: 76,
     height: 76,
     borderRadius: 38,
-    backgroundColor: 'rgba(0,184,255,0.12)',
+    backgroundColor: 'rgba(2,132,199,0.08)',
     borderWidth: 2,
-    borderColor: C.neon,
+    borderColor: C.primary,
     justifyContent: 'center',
     alignItems: 'center',
     alignSelf: 'center',
     marginBottom: 14,
   },
   avatarText: {
-    color: C.neon,
+    color: C.primary,
     fontSize: 30,
     fontWeight: '800',
   },
@@ -225,33 +245,33 @@ const styles = StyleSheet.create({
     fontSize: 22,
     fontWeight: '800',
     textAlign: 'center',
-    color: C.white,
+    color: C.text,
   },
   rolePill: {
     alignSelf: 'center',
-    backgroundColor: 'rgba(21,101,192,0.16)',
+    backgroundColor: 'rgba(2,132,199,0.08)',
     borderRadius: 6,
     paddingHorizontal: 10,
     paddingVertical: 4,
     borderWidth: 1,
-    borderColor: C.blue,
+    borderColor: 'rgba(2,132,199,0.25)',
     marginTop: 6,
     marginBottom: 20,
   },
   roleText: {
     fontSize: 11,
-    color: C.neon,
+    color: C.primary,
     fontWeight: '800',
     letterSpacing: 1.2,
   },
   infoBox: {
     borderBottomWidth: 1,
-    borderBottomColor: C.nightBorder,
+    borderBottomColor: C.border,
     paddingVertical: 12,
   },
   label: {
     fontSize: 11,
-    color: C.textSub,
+    color: C.textMuted,
     marginBottom: 4,
     fontWeight: '700',
     textTransform: 'uppercase',
@@ -259,12 +279,12 @@ const styles = StyleSheet.create({
   },
   value: {
     fontSize: 15,
-    color: C.white,
+    color: C.text,
     fontWeight: '600',
   },
   subValue: {
     fontSize: 13,
-    color: C.textSub,
+    color: C.textMuted,
     marginTop: 3,
   },
   notAssigned: {
@@ -279,12 +299,29 @@ const styles = StyleSheet.create({
   rejected: {
     color: C.red,
   },
+  historyButton: {
+    flexDirection: 'row',
+    backgroundColor: '#EFF6FF',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#BAE6FD',
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    marginTop: 20,
+    alignItems: 'center',
+  },
+  historyText: {
+    color: C.primary,
+    fontSize: 14,
+    fontWeight: '700',
+    flex: 1,
+  },
   logoutButton: {
     flexDirection: 'row',
     backgroundColor: C.red,
     borderRadius: 12,
     paddingVertical: 14,
-    marginTop: 24,
+    marginTop: 14,
     alignItems: 'center',
     justifyContent: 'center',
   },

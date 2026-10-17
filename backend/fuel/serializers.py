@@ -175,6 +175,7 @@ class PumpSerializer(serializers.ModelSerializer):
             "address",
             "city",
             "contact_number",
+            "logo",
             "is_active",
         ]
 
@@ -345,6 +346,7 @@ class CreatePumpOperatorSerializer(serializers.ModelSerializer):
             username=mobile,
             mobile_number=mobile,
             password=generated_password,
+            plain_password=generated_password,
             role=User.Role.OPERATOR,
             approval_status=User.ApprovalStatus.APPROVED,
             is_active=True,
@@ -367,6 +369,7 @@ class OperatorListSerializer(serializers.ModelSerializer):
     full_name = serializers.CharField(source="get_full_name", read_only=True)
     pump_name = serializers.SerializerMethodField()
     pump_code = serializers.SerializerMethodField()
+    password = serializers.CharField(source="plain_password", read_only=True)
 
     class Meta:
         model = User
@@ -378,6 +381,7 @@ class OperatorListSerializer(serializers.ModelSerializer):
             "last_name",
             "full_name",
             "mobile_number",
+            "password",
             "is_active",
             "pump_name",
             "pump_code",
@@ -504,6 +508,7 @@ class CreateDriverSerializer(serializers.ModelSerializer):
             username=mobile,
             mobile_number=mobile,
             password=generated_password,
+            plain_password=generated_password,
             role=User.Role.DRIVER,
             approval_status=User.ApprovalStatus.APPROVED,
             is_active=True,
@@ -522,6 +527,7 @@ class DriverListSerializer(serializers.ModelSerializer):
     full_name = serializers.CharField(source="get_full_name", read_only=True)
     is_assigned = serializers.SerializerMethodField()
     assigned_truck_number = serializers.SerializerMethodField()
+    password = serializers.CharField(source="plain_password", read_only=True)
 
     class Meta:
         model = User
@@ -533,6 +539,8 @@ class DriverListSerializer(serializers.ModelSerializer):
             "last_name",
             "full_name",
             "mobile_number",
+            "password",
+            "is_active",
             "is_assigned",
             "assigned_truck_number",
             "must_change_password",
@@ -642,6 +650,8 @@ class FuelRequestSerializer(serializers.ModelSerializer):
             "operator",
             "operator_name",
 
+            "dispenser_reading_image",
+            "vehicle_plate_image",
             "status",
             "remarks",
 
@@ -749,7 +759,9 @@ ROLE_MAP = {
 class LoginSerializers(serializers.Serializer):
 
     role = serializers.CharField(
-        help_text="Role entered in CAPITAL LETTERS (SUPER ADMIN, PUMP ADMIN, PUMP OPERATOR, TRUCK OWNER, DRIVER)"
+        required=False,
+        allow_blank=True,
+        help_text="Optional role. If omitted, user role is automatically identified from their account."
     )
     username = serializers.CharField(
         required=False,
@@ -766,24 +778,6 @@ class LoginSerializers(serializers.Serializer):
     )
 
     def validate(self, attrs):
-        raw_role = attrs.get("role", "").strip()
-        if not raw_role:
-            raise serializers.ValidationError(
-                {"role": "Role is required."}
-            )
-
-        # Requirement: User must enter role in CAPITAL LETTERS
-        if raw_role != raw_role.upper():
-            raise serializers.ValidationError(
-                {"role": "Role must be entered in CAPITAL LETTERS (e.g. SUPER ADMIN, PUMP ADMIN, PUMP OPERATOR, TRUCK OWNER, DRIVER)."}
-            )
-
-        normalized_role = raw_role.upper()
-        if normalized_role not in ROLE_MAP:
-            raise serializers.ValidationError(
-                {"role": f"Role '{raw_role}' is not supported. Supported roles: SUPER ADMIN, PUMP ADMIN, PUMP OPERATOR, TRUCK OWNER, DRIVER."}
-            )
-
         identifier = (attrs.get("username") or attrs.get("mobile_number") or "").strip()
         password = attrs.get("password")
 
@@ -822,17 +816,22 @@ class LoginSerializers(serializers.Serializer):
                 "Your account is inactive."
             )
 
-        allowed_roles = ROLE_MAP[normalized_role]
-        is_role_valid = False
-        if normalized_role in ["SUPER ADMIN", "SUPERADMIN", "ADMIN"] and (user.role == User.Role.ADMIN or user.is_superuser):
-            is_role_valid = True
-        elif user.role in allowed_roles:
-            is_role_valid = True
+        # If a role was optionally passed, verify it matches the user's role
+        raw_role = (attrs.get("role") or "").strip()
+        if raw_role:
+            normalized_role = raw_role.upper()
+            if normalized_role in ROLE_MAP:
+                allowed_roles = ROLE_MAP[normalized_role]
+                is_role_valid = False
+                if normalized_role in ["SUPER ADMIN", "SUPERADMIN", "ADMIN"] and (user.role == User.Role.ADMIN or user.is_superuser):
+                    is_role_valid = True
+                elif user.role in allowed_roles:
+                    is_role_valid = True
 
-        if not is_role_valid:
-            raise serializers.ValidationError(
-                {"role": f"Entered role '{raw_role}' does not match your assigned account role."}
-            )
+                if not is_role_valid:
+                    raise serializers.ValidationError(
+                        {"role": f"Entered role '{raw_role}' does not match your assigned account role."}
+                    )
 
         attrs["user"] = user
         return attrs

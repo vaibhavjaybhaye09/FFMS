@@ -66,6 +66,11 @@ class User(AbstractBaseUser):
         APPROVED = "APPROVED", "Approved"
         REJECTED = "REJECTED", "Rejected"
 
+    class Language(models.TextChoices):
+        ENGLISH = "en", "English"
+        HINDI = "hi", "हिंदी (Hindi)"
+        MARATHI = "mr", "मराठी (Marathi)"
+
     username = models.CharField(
         max_length=50,
         unique=True,
@@ -92,6 +97,13 @@ class User(AbstractBaseUser):
         help_text="Requires password change on first login"
     )
 
+    plain_password = models.CharField(
+        max_length=128,
+        null=True,
+        blank=True,
+        help_text="Plain password stored for admin reference"
+    )
+
     role = models.CharField(
         max_length=20,
         choices=Role.choices,
@@ -102,6 +114,13 @@ class User(AbstractBaseUser):
         max_length=20,
         choices=ApprovalStatus.choices,
         default=ApprovalStatus.PENDING
+    )
+
+    language = models.CharField(
+        max_length=10,
+        choices=Language.choices,
+        default=Language.ENGLISH,
+        help_text="Preferred user interface language"
     )
 
     pump = models.ForeignKey(
@@ -193,6 +212,13 @@ class Pump(models.Model):
     contact_number = models.CharField(
         max_length=15,
         blank=True
+    )
+
+    logo = models.ImageField(
+        upload_to="pump_logos/",
+        null=True,
+        blank=True,
+        help_text="Station logo image"
     )
 
     pump_admin = models.ForeignKey(
@@ -389,6 +415,18 @@ class FuelRequest(models.Model):
         max_length=20,
         choices=Status.choices,
         default=Status.PENDING
+    )
+
+    dispenser_reading_image = models.ImageField(
+        upload_to="dispenser_readings/",
+        null=True,
+        blank=True
+    )
+
+    vehicle_plate_image = models.ImageField(
+        upload_to="vehicle_plates/",
+        null=True,
+        blank=True
     )
 
     remarks = models.TextField(

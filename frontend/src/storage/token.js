@@ -65,3 +65,23 @@ export const removeToken = async () => {
     console.error('Error removing token', e);
   }
 };
+
+const LANG_KEY = 'user_preferred_language';
+
+export const saveLanguage = async (lang) => {
+  try {
+    await AsyncStorage.setItem(LANG_KEY, lang || 'en');
+  } catch (e) {
+    console.error('Error saving language', e);
+  }
+};
+
+export const getLanguage = async () => {
+  try {
+    const lang = await AsyncStorage.getItem(LANG_KEY);
+    return lang || 'en';
+  } catch (e) {
+    console.error('Error reading language', e);
+    return 'en';
+  }
+};

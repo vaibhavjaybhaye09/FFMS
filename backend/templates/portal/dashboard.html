@@ -1,0 +1,258 @@
+{% extends 'portal/base.html' %}
+
+{% block title %}Dashboard Overview - {{ pump.name|default:"Fuel Station" }}{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+
+    <!-- Station Welcome Banner -->
+    <div class="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+        <div class="flex items-start space-x-4">
+            <div class="w-14 h-14 rounded-2xl bg-sky-50 border border-sky-200 text-sky-600 flex items-center justify-center text-xl shrink-0 overflow-hidden shadow-inner">
+                {% if pump and pump.logo %}
+                <img src="{{ pump.logo.url }}" alt="{{ pump.name }}" class="w-full h-full object-contain p-1">
+                {% else %}
+                <i class="fa-solid fa-gas-pump text-2xl"></i>
+                {% endif %}
+            </div>
+            <div>
+                <div class="flex items-center space-x-2">
+                    <h1 class="text-xl font-black text-slate-900 tracking-tight">{{ pump.name|default:"City Central Fuel Pump" }}</h1>
+                    <span class="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 text-[10px] font-bold border border-emerald-200 uppercase">{{ t.active_station }}</span>
+                </div>
+                <p class="text-xs text-slate-500 mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 font-medium">
+                    <span><i class="fa-solid fa-barcode text-slate-400 mr-1"></i>{{ t.station_code }}: <strong class="text-slate-800">{{ pump.code|default:"PUMP001" }}</strong></span>
+                    <span>&bull;</span>
+                    <span><i class="fa-solid fa-location-dot text-slate-400 mr-1"></i>{{ t.location }}: <strong class="text-slate-800">{{ pump.city|default:"Online" }}</strong></span>
+                    <span>&bull;</span>
+                    <span><i class="fa-solid fa-phone text-slate-400 mr-1"></i>{{ t.contact }}: <strong class="text-slate-800">{{ pump.contact_number|default:"Not specified" }}</strong></span>
+                </p>
+            </div>
+        </div>
+        <div class="flex items-center space-x-2 shrink-0">
+            <a href="{% url 'portal-settings' %}" class="inline-flex items-center px-4 py-2 rounded-xl text-xs font-bold text-sky-700 bg-sky-50 border border-sky-200 hover:bg-sky-100 transition-colors shadow-sm">
+                <i class="fa-solid fa-camera mr-1.5 text-sm"></i>{{ t.update_logo_btn }}
+            </a>
+            <a href="{% url 'portal-transactions' %}?export=csv" class="inline-flex items-center px-4 py-2 rounded-xl text-xs font-bold text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 transition-colors shadow-sm">
+                <i class="fa-solid fa-file-csv mr-1.5 text-sm"></i>{{ t.export_csv }}
+            </a>
+            <button onclick="window.print()" class="inline-flex items-center px-4 py-2 rounded-xl text-xs font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 transition-colors shadow-sm">
+                <i class="fa-solid fa-print mr-1.5 text-sm"></i>{{ t.print }}
+            </button>
+        </div>
+    </div>
+
+    <!-- 4 Main KPI Cards -->
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        
+        <!-- Total Fuel Dispensed -->
+        <div class="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
+            <div class="flex items-center justify-between mb-3">
+                <span class="text-xs font-bold text-slate-500 uppercase tracking-wider">{{ t.total_dispensed }}</span>
+                <span class="w-8 h-8 rounded-lg bg-sky-100 text-sky-600 flex items-center justify-center text-sm">
+                    <i class="fa-solid fa-droplet"></i>
+                </span>
+            </div>
+            <div class="text-2xl font-black text-slate-900 tracking-tight">{{ total_liters }} <span class="text-sm font-semibold text-slate-500">{{ t.liters }}</span></div>
+            <div class="mt-3 pt-3 border-t border-slate-100 flex items-center justify-between text-xs font-semibold">
+                <span class="text-sky-700"><i class="fa-solid fa-oil-can mr-1"></i>{{ t.diesel }}: {{ diesel_liters }} L</span>
+                <span class="text-amber-700"><i class="fa-solid fa-fire mr-1"></i>{{ t.petrol }}: {{ petrol_liters }} L</span>
+            </div>
+        </div>
+
+        <!-- Fuel Requests Stats -->
+        <div class="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
+            <div class="flex items-center justify-between mb-3">
+                <span class="text-xs font-bold text-slate-500 uppercase tracking-wider">{{ t.fuel_requests }}</span>
+                <span class="w-8 h-8 rounded-lg bg-emerald-100 text-emerald-600 flex items-center justify-center text-sm">
+                    <i class="fa-solid fa-receipt"></i>
+                </span>
+            </div>
+            <div class="text-2xl font-black text-slate-900 tracking-tight">{{ total_requests }}</div>
+            <div class="mt-3 pt-3 border-t border-slate-100 flex items-center space-x-3 text-xs font-semibold">
+                <span class="text-emerald-700"><i class="fa-solid fa-check-double mr-1"></i>{{ approved_requests|add:completed_requests }} {{ t.completed }}</span>
+                <span class="text-amber-700"><i class="fa-solid fa-clock mr-1"></i>{{ pending_requests }} {{ t.pending }}</span>
+            </div>
+        </div>
+
+        <!-- Active Pump Operators -->
+        <a href="{% url 'portal-operator-reports' %}" class="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm hover:border-sky-300 transition-all block group">
+            <div class="flex items-center justify-between mb-3">
+                <span class="text-xs font-bold text-slate-500 uppercase tracking-wider">{{ t.station_operators }}</span>
+                <span class="w-8 h-8 rounded-lg bg-indigo-100 text-indigo-600 flex items-center justify-center text-sm group-hover:scale-110 transition-transform">
+                    <i class="fa-solid fa-users-gear"></i>
+                </span>
+            </div>
+            <div class="text-2xl font-black text-slate-900 tracking-tight">{{ total_operators }}</div>
+            <div class="mt-3 pt-3 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-sky-600">
+                <span>{{ t.view_details }}</span>
+                <i class="fa-solid fa-arrow-right text-[10px] group-hover:translate-x-1 transition-transform"></i>
+            </div>
+        </a>
+
+        <!-- Fleet Truck Owners -->
+        <a href="{% url 'portal-customer-reports' %}" class="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm hover:border-sky-300 transition-all block group">
+            <div class="flex items-center justify-between mb-3">
+                <span class="text-xs font-bold text-slate-500 uppercase tracking-wider">{{ t.commercial_fleet }}</span>
+                <span class="w-8 h-8 rounded-lg bg-amber-100 text-amber-600 flex items-center justify-center text-sm group-hover:scale-110 transition-transform">
+                    <i class="fa-solid fa-truck"></i>
+                </span>
+            </div>
+            <div class="text-2xl font-black text-slate-900 tracking-tight">{{ total_customers }}</div>
+            <div class="mt-3 pt-3 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-amber-700">
+                <span>{{ trucks_count }} {{ t.trucks }}</span>
+                <i class="fa-solid fa-arrow-right text-[10px] group-hover:translate-x-1 transition-transform"></i>
+            </div>
+        </a>
+    </div>
+
+    <!-- 2 Column Section: Top Operators + Recent Requests -->
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+        <!-- Left: Operator Performance Leaderboard -->
+        <div class="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm flex flex-col justify-between">
+            <div>
+                <div class="flex items-center justify-between mb-4">
+                    <div class="flex items-center space-x-2">
+                        <span class="w-7 h-7 rounded-lg bg-sky-100 text-sky-600 flex items-center justify-center text-xs">
+                            <i class="fa-solid fa-ranking-star"></i>
+                        </span>
+                        <h2 class="font-extrabold text-sm text-slate-900">Operator Performance</h2>
+                    </div>
+                    <a href="{% url 'portal-operator-reports' %}" class="text-xs font-bold text-sky-600 hover:text-sky-700">See All</a>
+                </div>
+
+                <div class="space-y-3">
+                    {% for op in top_operators %}
+                    <div class="p-3 rounded-xl bg-slate-50 border border-slate-100 flex items-center justify-between hover:bg-slate-100 transition-colors">
+                        <div class="flex items-center space-x-3">
+                            <div class="w-9 h-9 rounded-xl bg-sky-100 text-sky-700 font-bold flex items-center justify-center text-xs">
+                                {{ op.first_name|default:op.username|slice:":2"|upper }}
+                            </div>
+                            <div>
+                                <h3 class="text-xs font-bold text-slate-900">{{ op.first_name|default:op.username }}</h3>
+                                <p class="text-[11px] text-slate-500 font-mono">{{ op.mobile_number }}</p>
+                            </div>
+                        </div>
+                        <div class="text-right">
+                            <div class="text-xs font-black text-sky-700">{{ op.dispensed_liters|default:"0.00" }} L</div>
+                            <a href="{% url 'portal-operator-detail' op.id %}" class="text-[10px] font-bold text-slate-500 hover:text-sky-600 underline">
+                                Detailed Report
+                            </a>
+                        </div>
+                    </div>
+                    {% empty %}
+                    <div class="text-center py-8 text-xs text-slate-400">
+                        <i class="fa-solid fa-user-slash text-2xl mb-2 text-slate-300 block"></i>
+                        No operator dispensing activity recorded yet.
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+
+            <div class="mt-4 pt-4 border-t border-slate-100">
+                <a href="{% url 'portal-operator-reports' %}" class="w-full py-2.5 px-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs flex items-center justify-center space-x-2 transition-colors">
+                    <i class="fa-solid fa-list-check text-xs"></i>
+                    <span>View Detailed Operator Analytical Report</span>
+                </a>
+            </div>
+        </div>
+
+        <!-- Right: Recent Live Fuel Requests (2 columns span) -->
+        <div class="lg:col-span-2 bg-white rounded-2xl border border-slate-200 p-6 shadow-sm flex flex-col justify-between">
+            <div>
+                <div class="flex items-center justify-between mb-4">
+                    <div class="flex items-center space-x-2">
+                        <span class="w-7 h-7 rounded-lg bg-emerald-100 text-emerald-600 flex items-center justify-center text-xs">
+                            <i class="fa-solid fa-clock-rotate-left"></i>
+                        </span>
+                        <h2 class="font-extrabold text-sm text-slate-900">Recent Fueling Transactions</h2>
+                    </div>
+                    <a href="{% url 'portal-transactions' %}" class="text-xs font-bold text-sky-600 hover:text-sky-700">Full Audit Log</a>
+                </div>
+
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left text-xs">
+                        <thead>
+                            <tr class="border-b border-slate-100 text-[10px] font-extrabold text-slate-400 uppercase tracking-wider">
+                                <th class="pb-2">Request</th>
+                                <th class="pb-2">Truck Plate</th>
+                                <th class="pb-2">Operator</th>
+                                <th class="pb-2">Fuel & Vol</th>
+                                <th class="pb-2">Verification Photos</th>
+                                <th class="pb-2">Status</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-slate-100">
+                            {% for req in recent_requests %}
+                            <tr class="hover:bg-slate-50 transition-colors">
+                                <td class="py-3 font-bold text-slate-900">
+                                    {{ req.request_number }}
+                                    <div class="text-[10px] text-slate-400 font-normal">{{ req.created_at|date:"M d, H:i" }}</div>
+                                </td>
+                                <td class="py-3">
+                                    <div class="ind-plate scale-90 origin-left">
+                                        <span class="ind-blue">IND</span>
+                                        <span class="plate-text">{{ req.truck.truck_number }}</span>
+                                    </div>
+                                    <div class="text-[10px] text-slate-500 mt-0.5">Driver: {{ req.driver.first_name|default:req.driver.mobile_number }}</div>
+                                </td>
+                                <td class="py-3">
+                                    <span class="font-semibold text-slate-800">{{ req.operator.first_name|default:req.operator.username|default:"Unassigned" }}</span>
+                                </td>
+                                <td class="py-3">
+                                    <span class="font-bold text-sky-700">{{ req.approved_liters|default:req.requested_liters }} L</span>
+                                    <span class="text-[10px] font-bold px-1.5 py-0.5 rounded {% if req.fuel_type == 'DIESEL' %}bg-sky-50 text-sky-700{% else %}bg-amber-50 text-amber-700{% endif %}">
+                                        {{ req.fuel_type }}
+                                    </span>
+                                </td>
+                                <td class="py-3">
+                                    <div class="flex items-center space-x-1.5">
+                                        {% if req.dispenser_reading_image %}
+                                        <button onclick="openImageModal('{{ req.dispenser_reading_image.url }}', 'Dispenser Meter Reading - {{ req.request_number }}', 'Truck {{ req.truck.truck_number }} &bull; {{ req.approved_liters }} Liters')" 
+                                                class="w-7 h-7 rounded bg-slate-100 hover:bg-sky-100 border border-slate-200 flex items-center justify-center text-sky-600 hover:border-sky-300 transition-colors" title="View Meter Image">
+                                            <i class="fa-solid fa-gauge text-xs"></i>
+                                        </button>
+                                        {% endif %}
+                                        {% if req.vehicle_plate_image %}
+                                        <button onclick="openImageModal('{{ req.vehicle_plate_image.url }}', 'Vehicle Plate Photo - {{ req.request_number }}', 'Vehicle Plate {{ req.truck.truck_number }}')" 
+                                                class="w-7 h-7 rounded bg-slate-100 hover:bg-emerald-100 border border-slate-200 flex items-center justify-center text-emerald-600 hover:border-emerald-300 transition-colors" title="View Vehicle Image">
+                                            <i class="fa-solid fa-id-card text-xs"></i>
+                                        </button>
+                                        {% endif %}
+                                        {% if not req.dispenser_reading_image and not req.vehicle_plate_image %}
+                                        <span class="text-[10px] text-slate-400 font-mono">No Photos</span>
+                                        {% endif %}
+                                    </div>
+                                </td>
+                                <td class="py-3">
+                                    <span class="px-2 py-0.5 rounded text-[10px] font-extrabold uppercase 
+                                        {% if req.status == 'COMPLETED' or req.status == 'APPROVED' %}bg-emerald-100 text-emerald-800 border border-emerald-200
+                                        {% elif req.status == 'PENDING' %}bg-amber-100 text-amber-800 border border-amber-200
+                                        {% else %}bg-red-100 text-red-800 border border-red-200{% endif %}">
+                                        {{ req.status }}
+                                    </span>
+                                </td>
+                            </tr>
+                            {% empty %}
+                            <tr>
+                                <td colspan="6" class="text-center py-8 text-slate-400">No requests recorded yet.</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="mt-4 pt-4 border-t border-slate-100 flex items-center justify-between text-xs">
+                <span class="text-slate-500">Showing recent 10 transactions with verification images</span>
+                <a href="{% url 'portal-transactions' %}" class="font-bold text-sky-600 hover:underline">
+                    View Complete Audit Log &rarr;
+                </a>
+            </div>
+        </div>
+
+    </div>
+
+</div>
+{% endblock %}

@@ -19,32 +19,35 @@ import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import apiClient from '../src/api/client';
 import { getUser, removeToken } from '../src/storage/token';
+import { useTranslation } from '../src/i18n/LanguageContext';
 
 const C = {
-  primary:    '#1565C0',
-  yellow:     '#FFC928',
+  primary:    '#0284C7',
+  yellow:     '#D97706',
   white:      '#FFFFFF',
-  red:        '#E53935',
-  night:      '#0B1220',
-  nightCard:  '#121C30',
-  nightCard2: '#0D1626',
-  nightBorder:'#1E2E4A',
-  neon:       '#00B8FF',
-  green:      '#00C853',
-  textMuted:  '#627794',
-  textSub:    '#8FA3BF',
+  red:        '#DC2626',
+  night:      '#F8FAFC',
+  nightCard:  '#FFFFFF',
+  nightCard2: '#F1F5F9',
+  nightBorder:'#E2E8F0',
+  neon:       '#0284C7',
+  green:      '#16A34A',
+  text:       '#0F172A',
+  textMuted:  '#64748B',
+  textSub:    '#334155',
 };
 
 const STATUS_MAP: Record<string, { bg: string; text: string }> = {
-  COMPLETED: { bg: 'rgba(0,200,83,0.12)',   text: '#00C853' },
-  APPROVED:  { bg: 'rgba(0,184,255,0.12)',  text: '#00B8FF' },
-  VERIFIED:  { bg: 'rgba(0,184,255,0.12)',  text: '#00B8FF' },
-  REJECTED:  { bg: 'rgba(229,57,53,0.12)', text: '#E53935' },
-  PENDING:   { bg: 'rgba(255,201,40,0.12)', text: '#FFC928' },
+  COMPLETED: { bg: '#DCFCE7', text: '#16A34A' },
+  APPROVED:  { bg: '#E0F2FE', text: '#0284C7' },
+  VERIFIED:  { bg: '#DCFCE7', text: '#16A34A' },
+  REJECTED:  { bg: '#FEE2E2', text: '#DC2626' },
+  PENDING:   { bg: '#FEF3C7', text: '#D97706' },
 };
 
 export default function CustomerScreen() {
   const router = useRouter();
+  const { t } = useTranslation();
 
   const [activeTab, setActiveTab] = useState<'trucks' | 'drivers' | 'requests'>('trucks');
   const [customerUser, setCustomerUser] = useState<any>(null);
@@ -82,6 +85,12 @@ export default function CustomerScreen() {
   const [assignModalVisible, setAssignModalVisible] = useState(false);
   const [selectedTruck, setSelectedTruck] = useState<any>(null);
   const [assigningDriverId, setAssigningDriverId] = useState<any>(null);
+
+  const [driverActionLoadingId, setDriverActionLoadingId] = useState<number | null>(null);
+  const [visiblePasswords, setVisiblePasswords] = useState<Record<number, boolean>>({});
+  const togglePasswordVisibility = (id: number) => {
+    setVisiblePasswords((prev) => ({ ...prev, [id]: !prev[id] }));
+  };
 
   const loadData = useCallback(async () => {
     try {
@@ -232,31 +241,89 @@ export default function CustomerScreen() {
     }
   };
 
+  const handleToggleDriverStatus = (drv: any) => {
+    const isCurrentlyActive = drv.is_active !== false;
+    const actionText = isCurrentlyActive ? 'Deactivate' : 'Activate';
+    const drvName = drv.full_name || drv.first_name || drv.mobile_number;
+
+    Alert.alert(
+      `${actionText} Driver ID`,
+      isCurrentlyActive
+        ? `Are you sure you want to deactivate Driver ${drvName}?\n\nThey will not be able to log in or request fuel, and any truck assigned to them will be unassigned.`
+        : `Activate Driver ${drvName}?\n\nThey will regain access to log in and request fuel.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: `${actionText} ID`,
+          style: isCurrentlyActive ? 'destructive' : 'default',
+          onPress: async () => {
+            setDriverActionLoadingId(drv.id);
+            try {
+              const res = await apiClient.patch(`/api/customer/drivers/${drv.id}/status/`, {
+                is_active: !isCurrentlyActive,
+              });
+              Alert.alert('Status Updated', res.data?.message || `Driver ${actionText.toLowerCase()}d successfully.`);
+              loadData();
+            } catch (err: any) {
+              Alert.alert('Action Failed', err?.response?.data?.error || `Failed to ${actionText.toLowerCase()} driver.`);
+            } finally {
+              setDriverActionLoadingId(null);
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const handleDeleteDriver = (drv: any) => {
+    const drvName = drv.full_name || drv.first_name || drv.mobile_number;
+    const empId = drv.employee_id || `ID #${drv.id}`;
+
+    Alert.alert(
+      'Delete Driver ID',
+      `Are you sure you want to delete Driver ${drvName} (${empId})?\n\nThis will remove their login access and unassign any truck linked to them.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete Permanently',
+          style: 'destructive',
+          onPress: async () => {
+            setDriverActionLoadingId(drv.id);
+            try {
+              const res = await apiClient.delete(`/api/customer/drivers/${drv.id}/delete/`);
+              Alert.alert('Driver Deleted', res.data?.message || 'Driver deleted successfully.');
+              loadData();
+            } catch (err: any) {
+              Alert.alert('Delete Failed', err?.response?.data?.error || 'Failed to delete driver.');
+            } finally {
+              setDriverActionLoadingId(null);
+            }
+          },
+        },
+      ]
+    );
+  };
+
   const statItems = [
-    { icon: 'bus', color: C.neon, bg: 'rgba(0,184,255,0.12)', label: 'Total Trucks', val: stats.total_trucks },
-    { icon: 'person', color: C.green, bg: 'rgba(0,200,83,0.12)', label: 'Drivers', val: drivers.length },
-    { icon: 'checkmark-circle', color: C.yellow, bg: 'rgba(255,201,40,0.12)', label: 'Assigned', val: stats.assigned_trucks },
-    { icon: 'water', color: '#9C27B0', bg: 'rgba(156,39,176,0.12)', label: 'Requests', val: requests.length },
+    { icon: 'bus', color: C.neon, bg: '#E0F2FE', label: t('fleet_trucks', 'Total Trucks'), val: stats.total_trucks },
+    { icon: 'person', color: C.green, bg: '#DCFCE7', label: t('drivers', 'Drivers'), val: drivers.length },
+    { icon: 'checkmark-circle', color: C.yellow, bg: '#FEF3C7', label: t('assigned', 'Assigned'), val: stats.assigned_trucks },
+    { icon: 'water', color: '#7C3AED', bg: '#EDE9FE', label: t('fuel_requests', 'Requests'), val: requests.length },
   ];
 
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor={C.night} />
+      <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
 
-      {/* ── Hero Header ── */}
-      <ImageBackground
-        source={require('../assets/images/pump2.jpg')}
-        style={styles.heroBg}
-        resizeMode="cover"
-      >
-        <View style={styles.heroOverlay} />
+      {/* ── Header ── */}
+      <View style={styles.headerContainer}>
         <View style={styles.neonBar} />
 
         <View style={styles.headerRow}>
           <View>
             <View style={styles.rolePill}>
-              <Ionicons name="shield-checkmark" size={11} color={C.neon} style={{ marginRight: 4 }} />
-              <Text style={styles.rolePillText}>TRUCK OWNER • FLEET</Text>
+              <Ionicons name="shield-checkmark" size={11} color={C.primary} style={{ marginRight: 4 }} />
+              <Text style={styles.rolePillText}>{t('truck_owner_customer', 'TRUCK OWNER • FLEET')}</Text>
             </View>
             <Text style={styles.headerName}>{customerUser?.name || customerUser?.first_name || 'Fleet Owner'}</Text>
             <Text style={styles.headerSub}>Manage your commercial fleet & driver assignments</Text>
@@ -267,7 +334,7 @@ export default function CustomerScreen() {
             </View>
           </TouchableOpacity>
         </View>
-      </ImageBackground>
+      </View>
 
       <ScrollView
         contentContainerStyle={styles.scrollContent}
@@ -295,7 +362,7 @@ export default function CustomerScreen() {
             activeOpacity={0.85}
           >
             <Ionicons name="add-circle" size={18} color={C.neon} style={{ marginRight: 6 }} />
-            <Text style={[styles.actionBtnText, { color: C.neon }]}>+ Add Truck</Text>
+            <Text style={[styles.actionBtnText, { color: C.neon }]}>+ {t('add_truck', 'Add Truck')}</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
@@ -304,16 +371,16 @@ export default function CustomerScreen() {
             activeOpacity={0.85}
           >
             <Ionicons name="person-add" size={18} color={C.green} style={{ marginRight: 6 }} />
-            <Text style={[styles.actionBtnText, { color: C.green }]}>+ Add Driver</Text>
+            <Text style={[styles.actionBtnText, { color: C.green }]}>+ {t('add_driver', 'Add Driver')}</Text>
           </TouchableOpacity>
         </View>
 
         {/* ── Tab Bar ── */}
         <View style={styles.tabBar}>
           {[
-            { key: 'trucks',   icon: 'bus',            label: `Trucks (${trucks.length})` },
-            { key: 'drivers',  icon: 'people-outline', label: `Drivers (${drivers.length})` },
-            { key: 'requests', icon: 'receipt-outline', label: `Requests (${requests.length})` },
+            { key: 'trucks',   icon: 'bus',            label: `${t('fleet_trucks', 'Trucks')} (${trucks.length})` },
+            { key: 'drivers',  icon: 'people-outline', label: `${t('drivers', 'Drivers')} (${drivers.length})` },
+            { key: 'requests', icon: 'receipt-outline', label: `${t('fuel_requests', 'Requests')} (${requests.length})` },
           ].map((tab) => (
             <TouchableOpacity
               key={tab.key}
@@ -412,20 +479,108 @@ export default function CustomerScreen() {
             ) : (
               drivers.map((drv) => (
                 <View key={drv.id} style={styles.truckCard}>
-                  <View style={[styles.truckAccent, { backgroundColor: C.green }]} />
+                  <View style={[styles.truckAccent, { backgroundColor: drv.is_active !== false ? C.green : C.red }]} />
                   <View style={styles.driverCardHeader}>
-                    <View style={styles.driverAvatarWrap}>
-                      <Text style={styles.driverAvatarTxt}>{(drv.first_name || 'D').charAt(0).toUpperCase()}</Text>
+                    <View style={[styles.driverAvatarWrap, { borderColor: drv.is_active !== false ? '#86EFAC' : '#FECACA', backgroundColor: drv.is_active !== false ? '#DCFCE7' : '#FEE2E2' }]}>
+                      <Text style={[styles.driverAvatarTxt, { color: drv.is_active !== false ? C.green : C.red }]}>
+                        {(drv.first_name || 'D').charAt(0).toUpperCase()}
+                      </Text>
                     </View>
                     <View style={{ flex: 1 }}>
                       <Text style={styles.driverHeaderName}>{drv.full_name || drv.first_name}</Text>
-                      <Text style={styles.driverHeaderPhone}>Login ID: {drv.mobile_number}</Text>
+                      <Text style={styles.driverEmpId}>ID: {drv.employee_id || `DRIV${drv.id}`}</Text>
                     </View>
-                    <View style={[styles.assignedStatusBadge, drv.is_assigned ? { borderColor: 'rgba(0,200,83,0.4)', backgroundColor: 'rgba(0,200,83,0.12)' } : { borderColor: 'rgba(255,201,40,0.4)', backgroundColor: 'rgba(255,201,40,0.12)' }]}>
-                      <Text style={[styles.assignedStatusTxt, drv.is_assigned ? { color: C.green } : { color: C.yellow }]}>
-                        {drv.is_assigned ? `Truck: ${drv.assigned_truck_number}` : 'Unassigned'}
+
+                    {/* Status Pill Badge */}
+                    <View style={[styles.statusPill, drv.is_active !== false ? styles.activePillBg : styles.inactivePillBg]}>
+                      <View style={[styles.statusDot, drv.is_active !== false ? styles.activeDotBg : styles.inactiveDotBg]} />
+                      <Text style={[styles.statusPillText, drv.is_active !== false ? styles.activePillText : styles.inactivePillText]}>
+                        {drv.is_active !== false ? 'ACTIVE' : 'DEACTIVATED'}
                       </Text>
                     </View>
+                  </View>
+
+                  {/* ── Driver Credentials & Assignment Box ── */}
+                  <View style={styles.drvCredContainer}>
+                    <View style={styles.drvCredRow}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                        <Ionicons name="call-outline" size={13} color={C.neon} style={{ marginRight: 6 }} />
+                        <Text style={styles.drvCredLabel}>Login ID (Mobile):</Text>
+                      </View>
+                      <Text style={styles.drvCredVal}>{drv.mobile_number || '—'}</Text>
+                    </View>
+
+                    <View style={[styles.drvCredRow, { marginTop: 6 }]}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                        <Ionicons name="key-outline" size={13} color={C.yellow} style={{ marginRight: 6 }} />
+                        <Text style={styles.drvCredLabel}>Password:</Text>
+                      </View>
+                      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                        <Text style={[styles.drvCredVal, { color: C.yellow, marginRight: 8, letterSpacing: visiblePasswords[drv.id] ? 0.5 : 2 }]}>
+                          {visiblePasswords[drv.id] ? (drv.password || 'Not Set') : (drv.password ? '••••••••' : '—')}
+                        </Text>
+                        {drv.password ? (
+                          <TouchableOpacity onPress={() => togglePasswordVisibility(drv.id)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                            <Ionicons
+                              name={visiblePasswords[drv.id] ? "eye-off-outline" : "eye-outline"}
+                              size={16}
+                              color={C.textSub}
+                            />
+                          </TouchableOpacity>
+                        ) : null}
+                      </View>
+                    </View>
+
+                    <View style={[styles.drvCredRow, { marginTop: 6 }]}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                        <Ionicons name="bus-outline" size={13} color={C.primary} style={{ marginRight: 6 }} />
+                        <Text style={styles.drvCredLabel}>Assigned Truck:</Text>
+                      </View>
+                      <View style={[styles.assignedStatusBadge, drv.is_assigned ? { borderColor: 'rgba(0,200,83,0.4)', backgroundColor: 'rgba(0,200,83,0.12)' } : { borderColor: 'rgba(255,201,40,0.4)', backgroundColor: 'rgba(255,201,40,0.12)' }]}>
+                        <Text style={[styles.assignedStatusTxt, drv.is_assigned ? { color: C.green } : { color: C.yellow }]}>
+                          {drv.is_assigned ? drv.assigned_truck_number : 'Unassigned'}
+                        </Text>
+                      </View>
+                    </View>
+                  </View>
+
+                  {/* ── Action Buttons Row: Activate / Deactivate & Delete ── */}
+                  <View style={styles.cardActionRow}>
+                    <TouchableOpacity
+                      style={[
+                        styles.drvActionBtn,
+                        drv.is_active !== false ? styles.deactivateBtn : styles.activateBtn
+                      ]}
+                      onPress={() => handleToggleDriverStatus(drv)}
+                      disabled={driverActionLoadingId === drv.id}
+                      activeOpacity={0.8}
+                    >
+                      {driverActionLoadingId === drv.id ? (
+                        <ActivityIndicator size="small" color={drv.is_active !== false ? '#B45309' : C.green} />
+                      ) : (
+                        <>
+                          <Ionicons
+                            name={drv.is_active !== false ? "pause-circle-outline" : "checkmark-circle-outline"}
+                            size={15}
+                            color={drv.is_active !== false ? '#B45309' : C.green}
+                            style={{ marginRight: 5 }}
+                          />
+                          <Text style={[styles.drvActionBtnText, drv.is_active !== false ? { color: '#B45309' } : { color: C.green }]}>
+                            {drv.is_active !== false ? 'Deactivate ID' : 'Activate ID'}
+                          </Text>
+                        </>
+                      )}
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={[styles.drvActionBtn, styles.deleteBtn]}
+                      onPress={() => handleDeleteDriver(drv)}
+                      disabled={driverActionLoadingId === drv.id}
+                      activeOpacity={0.8}
+                    >
+                      <Ionicons name="trash-outline" size={15} color={C.red} style={{ marginRight: 5 }} />
+                      <Text style={[styles.drvActionBtnText, { color: C.red }]}>Delete ID</Text>
+                    </TouchableOpacity>
                   </View>
                 </View>
               ))
@@ -637,12 +792,12 @@ export default function CustomerScreen() {
             <Text style={styles.modalSubtitle}>Vehicle: {selectedTruck?.truck_number}</Text>
 
             <ScrollView style={{ maxHeight: 260, marginVertical: 12 }}>
-              {drivers.length === 0 ? (
+              {drivers.filter((d: any) => d.is_active !== false).length === 0 ? (
                 <Text style={{ color: C.textSub, textAlign: 'center', marginVertical: 20 }}>
-                  No drivers registered yet. Add a driver first!
+                  No active drivers available. Activate a driver or add a new driver first!
                 </Text>
               ) : (
-                drivers.map((drv) => (
+                drivers.filter((d: any) => d.is_active !== false).map((drv) => (
                   <TouchableOpacity
                     key={drv.id}
                     style={styles.driverSelectItem}
@@ -675,104 +830,200 @@ export default function CustomerScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: C.night },
-  heroBg: { width: '100%' },
-  heroOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(11,18,32,0.82)' },
-  neonBar: { height: 3, backgroundColor: C.neon, shadowColor: C.neon, shadowOpacity: 1, shadowRadius: 8, elevation: 8 },
-  headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', paddingHorizontal: 20, paddingTop: 16, paddingBottom: 22 },
-  rolePill: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(0,184,255,0.12)', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3, borderWidth: 1, borderColor: C.neon, marginBottom: 6, alignSelf: 'flex-start' },
-  rolePillText: { fontSize: 10, fontWeight: '800', color: C.neon, letterSpacing: 1.5 },
-  headerName: { fontSize: 22, fontWeight: '800', color: C.white },
+  headerContainer: { backgroundColor: C.white, borderBottomWidth: 1, borderBottomColor: C.nightBorder },
+  neonBar: { height: 3, backgroundColor: C.neon },
+  headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', paddingHorizontal: 20, paddingTop: 16, paddingBottom: 18 },
+  rolePill: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#E0F2FE', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3, borderWidth: 1, borderColor: '#BAE6FD', marginBottom: 6, alignSelf: 'flex-start' },
+  rolePillText: { fontSize: 10, fontWeight: '800', color: C.primary, letterSpacing: 1.5 },
+  headerName: { fontSize: 22, fontWeight: '800', color: C.text },
   headerSub: { fontSize: 12, color: C.textSub, marginTop: 2 },
   avatarBtn: {},
-  avatar: { width: 46, height: 46, borderRadius: 23, backgroundColor: 'rgba(0,184,255,0.12)', borderWidth: 2, borderColor: C.neon, justifyContent: 'center', alignItems: 'center' },
-  avatarText: { fontSize: 20, fontWeight: '800', color: C.neon },
+  avatar: { width: 46, height: 46, borderRadius: 23, backgroundColor: '#E0F2FE', borderWidth: 2, borderColor: '#38BDF8', justifyContent: 'center', alignItems: 'center' },
+  avatarText: { fontSize: 20, fontWeight: '800', color: C.primary },
   scrollContent: { padding: 16, paddingBottom: 50 },
   statsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 14 },
-  statCard: { flex: 1, minWidth: '45%', backgroundColor: C.nightCard, borderRadius: 14, padding: 14, borderWidth: 1, borderColor: C.nightBorder },
+  statCard: { flex: 1, minWidth: '45%', backgroundColor: C.white, borderRadius: 14, padding: 14, borderWidth: 1, borderColor: C.nightBorder, shadowColor: '#64748B', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.06, shadowRadius: 6, elevation: 2 },
   statIcon: { width: 36, height: 36, borderRadius: 18, justifyContent: 'center', alignItems: 'center', marginBottom: 8 },
-  statVal: { fontSize: 24, fontWeight: '900', color: C.white, marginBottom: 2 },
+  statVal: { fontSize: 24, fontWeight: '900', color: C.text, marginBottom: 2 },
   statLabel: { fontSize: 11, color: C.textSub, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5 },
   actionRow: { flexDirection: 'row', gap: 10, marginBottom: 16 },
   actionBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 12, borderRadius: 12, borderWidth: 1 },
   actionBtnText: { fontSize: 13, fontWeight: '800', letterSpacing: 0.5 },
-  tabBar: { flexDirection: 'row', backgroundColor: C.nightCard2, borderRadius: 12, padding: 4, marginBottom: 16, borderWidth: 1, borderColor: C.nightBorder },
+  tabBar: { flexDirection: 'row', backgroundColor: '#F1F5F9', borderRadius: 12, padding: 4, marginBottom: 16, borderWidth: 1, borderColor: C.nightBorder },
   tabItem: { flex: 1, flexDirection: 'row', paddingVertical: 10, alignItems: 'center', justifyContent: 'center', borderRadius: 9 },
-  tabItemActive: { backgroundColor: C.neon },
+  tabItemActive: { backgroundColor: C.primary },
   tabText: { fontSize: 11, fontWeight: '700', color: C.textMuted },
-  tabTextActive: { color: C.night },
+  tabTextActive: { color: C.white },
   centerBox: { padding: 40, alignItems: 'center' },
-  emptyCard: { backgroundColor: C.nightCard, borderRadius: 16, padding: 36, alignItems: 'center', borderWidth: 1, borderColor: C.nightBorder },
-  emptyTitle: { fontSize: 16, fontWeight: '800', color: C.white, marginTop: 12, marginBottom: 4 },
+  emptyCard: { backgroundColor: C.white, borderRadius: 16, padding: 36, alignItems: 'center', borderWidth: 1, borderColor: C.nightBorder },
+  emptyTitle: { fontSize: 16, fontWeight: '800', color: C.text, marginTop: 12, marginBottom: 4 },
   emptySubtitle: { fontSize: 12, color: C.textSub, textAlign: 'center', lineHeight: 18 },
-  truckCard: { backgroundColor: C.nightCard, borderRadius: 16, padding: 16, marginBottom: 12, borderWidth: 1, borderColor: C.nightBorder, overflow: 'hidden' },
+  truckCard: { backgroundColor: C.white, borderRadius: 16, padding: 16, marginBottom: 12, borderWidth: 1, borderColor: C.nightBorder, overflow: 'hidden', shadowColor: '#64748B', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 4, elevation: 2 },
   truckAccent: { position: 'absolute', top: 0, left: 0, right: 0, height: 3 },
   truckHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
-  plateBox: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#050B14', borderRadius: 6, borderWidth: 1, borderColor: '#1E2D45', overflow: 'hidden' },
-  plateBlue: { backgroundColor: '#003399', paddingHorizontal: 5, paddingVertical: 4 },
+  plateBox: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FFFDE7', borderRadius: 6, borderWidth: 1.5, borderColor: '#0B1220', overflow: 'hidden' },
+  plateBlue: { backgroundColor: '#0284C7', paddingHorizontal: 5, paddingVertical: 4 },
   plateBlueTxt: { color: C.white, fontSize: 8, fontWeight: '800' },
-  plateNum: { color: C.white, fontWeight: '800', fontSize: 14, letterSpacing: 1.5, paddingHorizontal: 8 },
+  plateNum: { color: '#0B1220', fontWeight: '900', fontSize: 14, letterSpacing: 1.5, paddingHorizontal: 8 },
   fuelBadge: { flexDirection: 'row', alignItems: 'center', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 4, borderWidth: 1 },
   fuelBadgeText: { fontSize: 11, fontWeight: '800' },
   driverSection: { borderTopWidth: 1, borderTopColor: C.nightBorder, paddingTop: 10 },
   driverRow: { flexDirection: 'row', alignItems: 'center' },
-  driverAvatar: { width: 32, height: 32, borderRadius: 16, backgroundColor: 'rgba(0,200,83,0.1)', borderWidth: 1, borderColor: 'rgba(0,200,83,0.3)', justifyContent: 'center', alignItems: 'center', marginRight: 10 },
+  driverAvatar: { width: 32, height: 32, borderRadius: 16, backgroundColor: '#DCFCE7', borderWidth: 1, borderColor: '#86EFAC', justifyContent: 'center', alignItems: 'center', marginRight: 10 },
   driverLabel: { fontSize: 10, color: C.textSub, fontWeight: '700', textTransform: 'uppercase' },
-  driverName: { fontSize: 13, color: C.white, fontWeight: '600' },
-  changeDrvBtn: { backgroundColor: 'rgba(0,184,255,0.15)', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8, borderWidth: 1, borderColor: C.neon },
-  changeDrvText: { color: C.neon, fontWeight: '700', fontSize: 12 },
+  driverName: { fontSize: 13, color: C.text, fontWeight: '700' },
+  changeDrvBtn: { backgroundColor: '#E0F2FE', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8, borderWidth: 1, borderColor: '#BAE6FD' },
+  changeDrvText: { color: C.primary, fontWeight: '700', fontSize: 12 },
   driverCardHeader: { flexDirection: 'row', alignItems: 'center' },
-  driverAvatarWrap: { width: 40, height: 40, borderRadius: 20, backgroundColor: 'rgba(0,200,83,0.12)', borderWidth: 1.5, borderColor: C.green, justifyContent: 'center', alignItems: 'center', marginRight: 12 },
+  driverAvatarWrap: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#DCFCE7', borderWidth: 1.5, borderColor: C.green, justifyContent: 'center', alignItems: 'center', marginRight: 12 },
   driverAvatarTxt: { fontSize: 16, fontWeight: '800', color: C.green },
-  driverHeaderName: { fontSize: 15, fontWeight: '800', color: C.white },
+  driverHeaderName: { fontSize: 15, fontWeight: '800', color: C.text },
   driverHeaderPhone: { fontSize: 12, color: C.textSub, marginTop: 2 },
   assignedStatusBadge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, borderWidth: 1 },
   assignedStatusTxt: { fontSize: 11, fontWeight: '800' },
-  reqCard: { backgroundColor: C.nightCard, borderRadius: 14, padding: 14, marginBottom: 10, borderWidth: 1, borderColor: C.nightBorder },
+  reqCard: { backgroundColor: C.white, borderRadius: 14, padding: 14, marginBottom: 10, borderWidth: 1, borderColor: C.nightBorder, shadowColor: '#64748B', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 4, elevation: 2 },
   reqCardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 },
-  reqNumber: { fontSize: 14, fontWeight: '800', color: C.white },
-  reqTruckPlate: { fontSize: 12, color: C.neon, fontWeight: '600', marginTop: 1 },
+  reqNumber: { fontSize: 14, fontWeight: '800', color: C.text },
+  reqTruckPlate: { fontSize: 12, color: C.primary, fontWeight: '700', marginTop: 1 },
   reqStatusBadge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
   reqStatusText: { fontSize: 11, fontWeight: '800' },
-  reqDetailsRow: { flexDirection: 'row', backgroundColor: C.nightCard2, borderRadius: 8, padding: 10, marginBottom: 10 },
+  reqDetailsRow: { flexDirection: 'row', backgroundColor: '#F8FAFC', borderRadius: 8, padding: 10, marginBottom: 10 },
   reqDetailItem: { flex: 1 },
   reqDetailLabel: { fontSize: 10, color: C.textSub, textTransform: 'uppercase', fontWeight: '700' },
-  reqDetailVal: { fontSize: 13, color: C.white, fontWeight: '800', marginTop: 2 },
+  reqDetailVal: { fontSize: 13, color: C.text, fontWeight: '800', marginTop: 2 },
   reqFooter: { flexDirection: 'row', alignItems: 'center' },
   reqFooterText: { fontSize: 11, color: C.textSub },
   reqFooterDot: { color: C.textMuted, marginHorizontal: 6, fontSize: 10 },
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'flex-end' },
-  modalSheet: { backgroundColor: C.nightCard, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 22, borderWidth: 1, borderColor: C.nightBorder },
-  modalHandle: { width: 40, height: 4, borderRadius: 2, backgroundColor: C.nightBorder, alignSelf: 'center', marginBottom: 14 },
-  modalTitle: { fontSize: 19, fontWeight: '800', color: C.white, textAlign: 'center' },
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(15,23,42,0.5)', justifyContent: 'flex-end' },
+  modalSheet: { backgroundColor: C.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 22, borderWidth: 1, borderColor: C.nightBorder },
+  modalHandle: { width: 40, height: 4, borderRadius: 2, backgroundColor: '#CBD5E1', alignSelf: 'center', marginBottom: 14 },
+  modalTitle: { fontSize: 19, fontWeight: '800', color: C.text, textAlign: 'center' },
   modalSubtitle: { fontSize: 12, color: C.textSub, textAlign: 'center', marginTop: 3, marginBottom: 16 },
   modalInputGroup: { marginBottom: 12 },
   inputLabel: { fontSize: 10, fontWeight: '800', color: C.textSub, letterSpacing: 0.8, marginBottom: 5 },
-  textInput: { backgroundColor: C.nightCard2, borderRadius: 10, paddingHorizontal: 12, height: 46, color: C.white, fontSize: 14, borderWidth: 1, borderColor: C.nightBorder },
+  textInput: { backgroundColor: '#F8FAFC', borderRadius: 10, paddingHorizontal: 12, height: 46, color: C.text, fontSize: 14, borderWidth: 1, borderColor: C.nightBorder },
   fuelToggleRow: { flexDirection: 'row', gap: 10 },
-  fuelToggleBtn: { flex: 1, paddingVertical: 10, borderRadius: 8, backgroundColor: C.nightCard2, borderWidth: 1, borderColor: C.nightBorder, alignItems: 'center' },
-  fuelToggleBtnActive: { backgroundColor: C.neon, borderColor: C.neon },
+  fuelToggleBtn: { flex: 1, paddingVertical: 10, borderRadius: 8, backgroundColor: '#F1F5F9', borderWidth: 1, borderColor: C.nightBorder, alignItems: 'center' },
+  fuelToggleBtnActive: { backgroundColor: C.primary, borderColor: C.primary },
   fuelToggleText: { fontSize: 12, fontWeight: '700', color: C.textSub },
-  fuelToggleTextActive: { color: C.night, fontWeight: '800' },
-  autoGenNote: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(255,201,40,0.1)', padding: 10, borderRadius: 8, borderWidth: 1, borderColor: 'rgba(255,201,40,0.3)', marginBottom: 16 },
-  autoGenNoteText: { fontSize: 11, color: C.yellow, flex: 1, lineHeight: 16 },
+  fuelToggleTextActive: { color: C.white, fontWeight: '800' },
+  autoGenNote: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FEF3C7', padding: 10, borderRadius: 8, borderWidth: 1, borderColor: '#FDE68A', marginBottom: 16 },
+  autoGenNoteText: { fontSize: 11, color: C.yellow, flex: 1, lineHeight: 16, fontWeight: '600' },
   modalBtnRow: { flexDirection: 'row', gap: 10, marginTop: 8 },
-  modalCancelBtn: { flex: 1, paddingVertical: 14, borderRadius: 10, backgroundColor: C.nightCard2, alignItems: 'center', borderWidth: 1, borderColor: C.nightBorder },
+  modalCancelBtn: { flex: 1, paddingVertical: 14, borderRadius: 10, backgroundColor: '#F1F5F9', alignItems: 'center', borderWidth: 1, borderColor: C.nightBorder },
   modalCancelText: { color: C.textSub, fontWeight: '700', fontSize: 14 },
   modalConfirmBtn: { flex: 1.5, paddingVertical: 14, borderRadius: 10, backgroundColor: C.primary, alignItems: 'center', justifyContent: 'center' },
   modalConfirmText: { color: C.white, fontWeight: '800', fontSize: 14 },
-  modalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.8)', justifyContent: 'center', alignItems: 'center', padding: 20 },
-  credCard: { backgroundColor: C.nightCard, borderRadius: 20, padding: 22, width: '100%', maxWidth: 380, borderWidth: 1, borderColor: C.nightBorder, alignItems: 'center' },
-  credIconWrap: { width: 56, height: 56, borderRadius: 28, backgroundColor: 'rgba(255,201,40,0.12)', borderWidth: 1, borderColor: 'rgba(255,201,40,0.4)', justifyContent: 'center', alignItems: 'center', marginBottom: 12 },
-  credTitle: { fontSize: 17, fontWeight: '800', color: C.white, textAlign: 'center', marginBottom: 6 },
+  modalBackdrop: { flex: 1, backgroundColor: 'rgba(15,23,42,0.6)', justifyContent: 'center', alignItems: 'center', padding: 20 },
+  credCard: { backgroundColor: C.white, borderRadius: 20, padding: 22, width: '100%', maxWidth: 380, borderWidth: 1, borderColor: C.nightBorder, alignItems: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.15, shadowRadius: 16, elevation: 8 },
+  credIconWrap: { width: 56, height: 56, borderRadius: 28, backgroundColor: '#FEF3C7', borderWidth: 1, borderColor: '#FDE68A', justifyContent: 'center', alignItems: 'center', marginBottom: 12 },
+  credTitle: { fontSize: 17, fontWeight: '800', color: C.text, textAlign: 'center', marginBottom: 6 },
   credNote: { fontSize: 12, color: C.textSub, textAlign: 'center', lineHeight: 17, marginBottom: 16 },
-  credBox: { width: '100%', backgroundColor: C.nightCard2, borderRadius: 10, padding: 14, borderWidth: 1, borderColor: C.nightBorder, marginBottom: 18 },
+  credBox: { width: '100%', backgroundColor: '#F8FAFC', borderRadius: 10, padding: 14, borderWidth: 1, borderColor: C.nightBorder, marginBottom: 18 },
   credRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   credLabel: { fontSize: 11, color: C.textMuted, fontWeight: '700' },
-  credVal: { fontSize: 14, color: C.neon, fontWeight: '800', letterSpacing: 0.5 },
+  credVal: { fontSize: 14, color: C.primary, fontWeight: '800', letterSpacing: 0.5 },
   credOkBtn: { backgroundColor: C.primary, borderRadius: 10, paddingVertical: 12, paddingHorizontal: 36, width: '100%', alignItems: 'center' },
   credOkBtnText: { color: C.white, fontSize: 14, fontWeight: '800' },
-  driverSelectItem: { flexDirection: 'row', alignItems: 'center', backgroundColor: C.nightCard2, padding: 12, borderRadius: 10, marginBottom: 8, borderWidth: 1, borderColor: C.nightBorder },
-  driverSelectName: { fontSize: 14, fontWeight: '700', color: C.white },
+  driverSelectItem: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#F8FAFC', padding: 12, borderRadius: 10, marginBottom: 8, borderWidth: 1, borderColor: C.nightBorder },
+  driverSelectName: { fontSize: 14, fontWeight: '700', color: C.text },
   driverSelectMobile: { fontSize: 11, color: C.textSub, marginTop: 2 },
-  driverSelectAction: { fontSize: 12, fontWeight: '800', color: C.neon },
+  driverSelectAction: { fontSize: 12, fontWeight: '800', color: C.primary },
+  driverEmpId: { fontSize: 11, color: C.textMuted, fontWeight: '600', marginTop: 1 },
+  statusPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
+  activePillBg: {
+    backgroundColor: '#DCFCE7',
+    borderColor: '#86EFAC',
+  },
+  inactivePillBg: {
+    backgroundColor: '#FEE2E2',
+    borderColor: '#FECACA',
+  },
+  statusDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    marginRight: 4,
+  },
+  activeDotBg: {
+    backgroundColor: C.green,
+  },
+  inactiveDotBg: {
+    backgroundColor: C.red,
+  },
+  statusPillText: {
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+  },
+  activePillText: {
+    color: '#15803D',
+  },
+  inactivePillText: {
+    color: '#B91C1C',
+  },
+  drvCredContainer: {
+    backgroundColor: '#F8FAFC',
+    borderRadius: 10,
+    padding: 10,
+    marginVertical: 10,
+    borderWidth: 1,
+    borderColor: C.nightBorder,
+  },
+  drvCredRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  drvCredLabel: {
+    fontSize: 11,
+    color: C.textSub,
+    fontWeight: '700',
+  },
+  drvCredVal: {
+    fontSize: 12,
+    color: C.text,
+    fontWeight: '800',
+  },
+  cardActionRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 2,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: C.nightBorder,
+  },
+  drvActionBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
+  activateBtn: {
+    backgroundColor: '#DCFCE7',
+    borderColor: '#86EFAC',
+  },
+  deactivateBtn: {
+    backgroundColor: '#FEF3C7',
+    borderColor: '#FDE68A',
+  },
+  deleteBtn: {
+    backgroundColor: '#FEE2E2',
+    borderColor: '#FECACA',
+  },
+  drvActionBtnText: {
+    fontSize: 11,
+    fontWeight: '800',
+  },
 });

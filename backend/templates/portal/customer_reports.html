@@ -1,0 +1,134 @@
+{% extends 'portal/base.html' %}
+
+{% block title %}Truck Owner & Fleet Analytical Reports - FuelFleet{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+
+    <!-- Page Header & Summary -->
+    <div class="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+        <div>
+            <div class="flex items-center space-x-2">
+                <span class="w-8 h-8 rounded-lg bg-amber-100 text-amber-600 flex items-center justify-center text-sm font-bold">
+                    <i class="fa-solid fa-truck-moving"></i>
+                </span>
+                <h1 class="text-xl font-black text-slate-900 tracking-tight">Truck Owner & Fleet Reports</h1>
+            </div>
+            <p class="text-xs text-slate-500 mt-1">Detailed fuel consumption, fleet inventory, assigned drivers, and audit history per truck owner</p>
+        </div>
+        <div class="flex items-center space-x-3">
+            <div class="px-3.5 py-1.5 rounded-xl bg-slate-100 border border-slate-200 text-xs font-semibold text-slate-700">
+                Registered Owners: <strong class="text-slate-900 font-bold">{{ total_customers_count }}</strong>
+            </div>
+            <div class="px-3.5 py-1.5 rounded-xl bg-amber-50 border border-amber-200 text-xs font-semibold text-amber-800">
+                Fleet Trucks: <strong class="text-amber-900 font-bold">{{ grand_trucks }}</strong>
+            </div>
+            <div class="px-3.5 py-1.5 rounded-xl bg-sky-50 border border-sky-200 text-xs font-semibold text-sky-800">
+                Total Consumed: <strong class="text-sky-900 font-bold">{{ grand_liters }} L</strong>
+            </div>
+        </div>
+    </div>
+
+    <!-- Search & Filter Bar -->
+    <div class="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm">
+        <form method="GET" class="flex flex-col sm:flex-row items-center gap-3">
+            <div class="relative flex-1 w-full">
+                <div class="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+                    <i class="fa-solid fa-magnifying-glass text-xs"></i>
+                </div>
+                <input 
+                    type="text" 
+                    name="q" 
+                    value="{{ search_query|default:'' }}"
+                    placeholder="Search truck owners by name, 9-char username, or mobile..." 
+                    class="block w-full pl-10 pr-3 py-2 border border-slate-200 rounded-xl bg-slate-50 text-slate-900 text-xs font-medium focus:bg-white focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-transparent transition-all"
+                >
+            </div>
+            <div class="flex items-center space-x-2 w-full sm:w-auto">
+                <button type="submit" class="px-4 py-2 bg-sky-600 hover:bg-sky-700 text-white font-bold text-xs rounded-xl transition-colors shadow-sm w-full sm:w-auto">
+                    Filter Owners
+                </button>
+                {% if search_query %}
+                <a href="{% url 'portal-customer-reports' %}" class="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold text-xs rounded-xl transition-colors">
+                    Reset
+                </a>
+                {% endif %}
+            </div>
+        </form>
+    </div>
+
+    <!-- Truck Owners Table -->
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+        <div class="overflow-x-auto">
+            <table class="w-full text-left text-xs">
+                <thead class="bg-slate-50 border-b border-slate-200 text-slate-500 uppercase tracking-wider text-[10px] font-extrabold">
+                    <tr>
+                        <th class="py-3.5 px-4">Truck Owner</th>
+                        <th class="py-3.5 px-4">Username (9-Char)</th>
+                        <th class="py-3.5 px-4">Contact Mobile</th>
+                        <th class="py-3.5 px-4">Fleet Trucks</th>
+                        <th class="py-3.5 px-4">Fuel Consumed</th>
+                        <th class="py-3.5 px-4">Fuel Breakdown</th>
+                        <th class="py-3.5 px-4">Total Requests</th>
+                        <th class="py-3.5 px-4 text-right">Detailed Report</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100">
+                    {% for item in customer_list %}
+                    <tr class="hover:bg-slate-50 transition-colors">
+                        <td class="py-3.5 px-4">
+                            <div class="flex items-center space-x-3">
+                                <div class="w-9 h-9 rounded-xl bg-amber-100 text-amber-700 font-extrabold flex items-center justify-center text-xs shrink-0">
+                                    {{ item.customer.first_name|default:item.customer.username|slice:":2"|upper }}
+                                </div>
+                                <div>
+                                    <div class="font-bold text-slate-900 text-sm">{{ item.customer.first_name|default:item.customer.username }}</div>
+                                    <div class="text-[10px] text-slate-400">ID: #{{ item.customer.id }} &bull; Commercial Fleet</div>
+                                </div>
+                            </div>
+                        </td>
+                        <td class="py-3.5 px-4 font-mono font-bold text-sky-700">
+                            {{ item.customer.username }}
+                        </td>
+                        <td class="py-3.5 px-4 font-mono text-slate-800">
+                            {{ item.customer.mobile_number }}
+                        </td>
+                        <td class="py-3.5 px-4">
+                            <span class="inline-flex items-center px-2 py-0.5 rounded-md bg-slate-100 text-slate-800 font-bold text-xs border border-slate-200">
+                                <i class="fa-solid fa-truck mr-1 text-[10px] text-slate-500"></i>{{ item.truck_count }} Trucks
+                            </span>
+                        </td>
+                        <td class="py-3.5 px-4">
+                            <span class="font-black text-slate-900 text-sm">{{ item.total_liters }} L</span>
+                        </td>
+                        <td class="py-3.5 px-4">
+                            <div class="flex items-center space-x-2">
+                                <span class="px-1.5 py-0.5 rounded bg-sky-50 text-sky-700 text-[10px] font-bold">D: {{ item.diesel_liters }} L</span>
+                                <span class="px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 text-[10px] font-bold">P: {{ item.petrol_liters }} L</span>
+                            </div>
+                        </td>
+                        <td class="py-3.5 px-4 font-semibold text-slate-800">
+                            {{ item.total_requests }} Requests
+                        </td>
+                        <td class="py-3.5 px-4 text-right">
+                            <a href="{% url 'portal-customer-detail' item.customer.id %}" class="inline-flex items-center px-3 py-1.5 rounded-lg bg-sky-50 hover:bg-sky-100 border border-sky-200 text-sky-700 font-bold text-xs transition-colors shadow-xs">
+                                <span>Fleet Report</span>
+                                <i class="fa-solid fa-chart-pie ml-1.5 text-[10px]"></i>
+                            </a>
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="8" class="text-center py-12 text-slate-400">
+                            <i class="fa-solid fa-truck text-3xl mb-3 text-slate-300 block"></i>
+                            No truck owners found matching your filter criteria.
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+</div>
+{% endblock %}
