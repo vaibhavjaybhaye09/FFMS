@@ -88,12 +88,14 @@
                             {{ item.operator.mobile_number }}
                         </td>
                         <td class="py-3.5 px-4 font-mono">
-                            {% if item.operator.plain_password %}
-                            <span class="px-2 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200 font-bold text-xs" title="Operator Plain Password for Admin Reference">
-                                {{ item.operator.plain_password }}
+                            {% if item.operator.must_change_password and item.operator.plain_password %}
+                            <span class="px-2 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200 font-bold text-xs" title="Temporary Password">
+                                {{ item.operator.plain_password }} <span class="text-[9px] uppercase font-bold text-amber-600 bg-amber-100 px-1 py-0.5 rounded ml-1">Temp</span>
                             </span>
                             {% else %}
-                            <span class="text-slate-400 text-[11px] italic">Encrypted</span>
+                            <span class="text-slate-400 text-[11px] italic font-sans flex items-center gap-1">
+                                <i class="fa-solid fa-lock text-[10px] text-emerald-600"></i> Set by Operator
+                            </span>
                             {% endif %}
                         </td>
                         <td class="py-3.5 px-4">

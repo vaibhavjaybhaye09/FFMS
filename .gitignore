@@ -1,5 +1,9 @@
 *.migrations/
 *.pyc
-.sqlite3
+*.sqlite3
+*.sqlite3-journal
+db.sqlite3
+backend/db.sqlite3
 *.__pycache__/
-envF
+__pycache__/
+envF

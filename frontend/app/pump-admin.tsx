@@ -521,6 +521,40 @@ export default function PumpAdminScreen() {
                       <Text style={styles.truckBadgeText}>{cust.trucks_count} Trucks</Text>
                     </View>
                   </View>
+                  <View style={[styles.opCredContainer, { marginHorizontal: 0, marginTop: 10, marginBottom: 8 }]}>
+                    <View style={styles.opCredRow}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                        <Ionicons name="key-outline" size={13} color={C.yellow} style={{ marginRight: 6 }} />
+                        <Text style={styles.opCredLabel}>Password:</Text>
+                      </View>
+                      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                        {cust.password ? (
+                          <>
+                            <Text style={[styles.opCredVal, { color: C.yellow, marginRight: 6, letterSpacing: visiblePasswords[cust.id] ? 0.5 : 2 }]}>
+                              {visiblePasswords[cust.id] ? cust.password : '••••••••'}
+                            </Text>
+                            <View style={{ backgroundColor: 'rgba(217, 119, 6, 0.15)', paddingHorizontal: 5, paddingVertical: 2, borderRadius: 4, marginRight: 8 }}>
+                              <Text style={{ fontSize: 9, color: C.yellow, fontWeight: '800' }}>TEMP</Text>
+                            </View>
+                            <TouchableOpacity onPress={() => togglePasswordVisibility(cust.id)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                              <Ionicons
+                                name={visiblePasswords[cust.id] ? "eye-off-outline" : "eye-outline"}
+                                size={16}
+                                color={C.textSub}
+                              />
+                            </TouchableOpacity>
+                          </>
+                        ) : (
+                          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                            <Ionicons name="lock-closed" size={12} color={C.green} style={{ marginRight: 4 }} />
+                            <Text style={[styles.opCredVal, { color: C.textMuted, fontSize: 12, fontStyle: 'italic' }]}>
+                              Set by Owner
+                            </Text>
+                          </View>
+                        )}
+                      </View>
+                    </View>
+                  </View>
                   <View style={styles.custFooter}>
                     <Text style={styles.custId}>ID: {cust.employee_id || `TOWN${cust.id}`}</Text>
                     <View style={styles.activePill}>
@@ -582,18 +616,30 @@ export default function PumpAdminScreen() {
                         <Text style={styles.opCredLabel}>Password:</Text>
                       </View>
                       <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                        <Text style={[styles.opCredVal, { color: C.yellow, marginRight: 8, letterSpacing: visiblePasswords[op.id] ? 0.5 : 2 }]}>
-                          {visiblePasswords[op.id] ? (op.password || 'Not Set') : (op.password ? '••••••••' : '—')}
-                        </Text>
                         {op.password ? (
-                          <TouchableOpacity onPress={() => togglePasswordVisibility(op.id)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                            <Ionicons
-                              name={visiblePasswords[op.id] ? "eye-off-outline" : "eye-outline"}
-                              size={18}
-                              color={C.textSub}
-                            />
-                          </TouchableOpacity>
-                        ) : null}
+                          <>
+                            <Text style={[styles.opCredVal, { color: C.yellow, marginRight: 6, letterSpacing: visiblePasswords[op.id] ? 0.5 : 2 }]}>
+                              {visiblePasswords[op.id] ? op.password : '••••••••'}
+                            </Text>
+                            <View style={{ backgroundColor: 'rgba(217, 119, 6, 0.15)', paddingHorizontal: 5, paddingVertical: 2, borderRadius: 4, marginRight: 8 }}>
+                              <Text style={{ fontSize: 9, color: C.yellow, fontWeight: '800' }}>TEMP</Text>
+                            </View>
+                            <TouchableOpacity onPress={() => togglePasswordVisibility(op.id)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                              <Ionicons
+                                name={visiblePasswords[op.id] ? "eye-off-outline" : "eye-outline"}
+                                size={18}
+                                color={C.textSub}
+                              />
+                            </TouchableOpacity>
+                          </>
+                        ) : (
+                          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                            <Ionicons name="lock-closed" size={12} color={C.green} style={{ marginRight: 4 }} />
+                            <Text style={[styles.opCredVal, { color: C.textMuted, fontSize: 12, fontStyle: 'italic' }]}>
+                              Set by Operator
+                            </Text>
+                          </View>
+                        )}
                       </View>
                     </View>
                   </View>

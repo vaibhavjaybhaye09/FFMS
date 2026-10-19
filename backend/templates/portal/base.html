@@ -142,31 +142,40 @@
 
                 <!-- Language Switcher & User Dropdown & Logout -->
                 <div class="flex items-center space-x-2.5">
-                    
+
                     <!-- Language Switcher Pill -->
                     <div class="inline-flex items-center p-1 bg-slate-100 rounded-xl border border-slate-200" title="Select Language / भाषा निवडा">
-                        <a href="{% url 'portal-set-language' 'en' %}?next={{ request.path }}" 
+                        <a href="{% url 'portal-set-language' 'en' %}?next={{ request.path }}"
                            class="px-2.5 py-1 text-xs font-black rounded-lg transition-all {% if current_lang == 'en' %}bg-white text-sky-700 shadow-xs border border-slate-200/80{% else %}text-slate-500 hover:text-slate-800{% endif %}">
                             EN
                         </a>
-                        <a href="{% url 'portal-set-language' 'mr' %}?next={{ request.path }}" 
+                        <a href="{% url 'portal-set-language' 'mr' %}?next={{ request.path }}"
                            class="px-2.5 py-1 text-xs font-black rounded-lg transition-all {% if current_lang == 'mr' %}bg-white text-sky-700 shadow-xs border border-slate-200/80{% else %}text-slate-500 hover:text-slate-800{% endif %}">
                             मराठी
                         </a>
-                        <a href="{% url 'portal-set-language' 'hi' %}?next={{ request.path }}" 
+                        <a href="{% url 'portal-set-language' 'hi' %}?next={{ request.path }}"
                            class="px-2.5 py-1 text-xs font-black rounded-lg transition-all {% if current_lang == 'hi' %}bg-white text-sky-700 shadow-xs border border-slate-200/80{% else %}text-slate-500 hover:text-slate-800{% endif %}">
                             हिंदी
                         </a>
                     </div>
 
-                    <div class="hidden sm:flex items-center space-x-2.5 bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-xl">
-                        <div class="w-8 h-8 rounded-lg bg-sky-600 text-white font-black text-xs flex items-center justify-center shadow-xs">
-                            {{ request.user.username|slice:":2"|upper }}
-                        </div>
-                        <div class="flex flex-col text-left">
-                            <span class="text-xs font-bold text-slate-800">{{ request.user.get_full_name|default:request.user.username }}</span>
-                            <span class="text-[10px] text-slate-500 font-medium">{% if request.user.role == 'ADMIN' %}{{ t.super_admin_role }}{% else %}{{ t.admin_role }}{% endif %}</span>
-                        </div>
+                    <div class="w-8 h-8 rounded-lg bg-sky-600 text-white font-black text-xs flex items-center justify-center">
+                        {% if request.user.is_authenticated %}
+                            {{ request.user.username|default:"U"|slice:":2"|upper }}
+                        {% else %}
+                            GU
+                        {% endif %}
+                    </div>
+
+                    <div class="flex flex-col text-left">
+                        <span class="text-xs font-bold text-slate-800">
+                            {% if request.user.is_authenticated %}
+                                {{ request.user.get_full_name|default:request.user.username }}
+                            {% else %}
+                                Guest User
+                            {% endif %}
+                        </span>
+                    </div>
                     </div>
                     <a href="{% url 'portal-logout' %}" title="Sign Out"
                         class="inline-flex items-center px-3 py-1.5 rounded-xl text-xs font-bold text-red-600 bg-red-50 border border-red-200 hover:bg-red-100 transition-colors shadow-xs">

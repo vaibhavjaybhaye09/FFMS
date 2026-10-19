@@ -18,7 +18,7 @@ import {
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import apiClient from '../src/api/client';
-import { saveRefreshToken, saveToken, saveUser } from '../src/storage/token';
+import { getToken, getUser, saveRefreshToken, saveToken, saveUser } from '../src/storage/token';
 import { useTranslation } from '../src/i18n/LanguageContext';
 
 const { width, height } = Dimensions.get('window');
@@ -47,6 +47,7 @@ const C = {
 
 export default function AuthScreen() {
   const { language, setLanguage, t } = useTranslation();
+  const [checkingAuth, setCheckingAuth] = useState(true);
   const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -69,7 +70,41 @@ export default function AuthScreen() {
   const slideAnim = useRef(new Animated.Value(40)).current;
   const glowPulse = useRef(new Animated.Value(1)).current;
 
+  const routeForRole = (userRole: string): string => {
+    if (userRole === 'DRIVER') return '/driver';
+    if (userRole === 'OPERATOR') return '/operator';
+    if (userRole === 'TRUCK_OWNER' || userRole === 'REGULAR_CUSTOMER') return '/customer';
+    if (userRole === 'PUMP_ADMIN' || userRole === 'ADMIN') return '/pump-admin';
+    return '/pump-admin';
+  };
+
   useEffect(() => {
+    let isMounted = true;
+
+    const checkExistingSession = async () => {
+      try {
+        const token = await getToken();
+        const user = await getUser();
+
+        if (token && user?.role) {
+          if (user.language) {
+            await setLanguage(user.language);
+          }
+          const nextRoute = routeForRole(user.role);
+          router.replace(nextRoute as any);
+          return;
+        }
+      } catch (err) {
+        console.warn('Error checking existing session:', err);
+      } finally {
+        if (isMounted) {
+          setCheckingAuth(false);
+        }
+      }
+    };
+
+    checkExistingSession();
+
     Animated.parallel([
       Animated.timing(fadeAnim, { toValue: 1, duration: 900, useNativeDriver: true }),
       Animated.spring(slideAnim, { toValue: 0, tension: 60, friction: 9, useNativeDriver: true }),
@@ -81,15 +116,11 @@ export default function AuthScreen() {
         Animated.timing(glowPulse, { toValue: 1, duration: 1800, useNativeDriver: true }),
       ])
     ).start();
-  }, []);
 
-  const routeForRole = (userRole: string): string => {
-    if (userRole === 'DRIVER') return '/driver';
-    if (userRole === 'OPERATOR') return '/operator';
-    if (userRole === 'TRUCK_OWNER' || userRole === 'REGULAR_CUSTOMER') return '/customer';
-    if (userRole === 'PUMP_ADMIN' || userRole === 'ADMIN') return '/pump-admin';
-    return '/pump-admin';
-  };
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   const handleLogin = async () => {
     const cleanIdentifier = identifier.trim();
@@ -198,6 +229,15 @@ export default function AuthScreen() {
       setChangingPassword(false);
     }
   };
+
+  if (checkingAuth) {
+    return (
+      <View style={styles.splashContainer}>
+        <StatusBar barStyle="dark-content" backgroundColor={C.bg} />
+        <ActivityIndicator size="large" color={C.primary} />
+      </View>
+    );
+  }
 
   return (
     <View style={styles.root}>
@@ -816,5 +856,10 @@ const styles = StyleSheet.create({
     marginTop: 4,
     marginBottom: 16,
     lineHeight: 18,
+  },
+  splashContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
 });

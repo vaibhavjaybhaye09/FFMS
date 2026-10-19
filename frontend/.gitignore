@@ -14,7 +14,6 @@ __pycache__/
 
 # Django migrations (Uncomment the line below if you don't want to track history)
 # *.migrations/
-
 # Database files (CRITICAL: Do not upload your database)
 *.sqlite3
 *.db

@@ -160,7 +160,7 @@ class ChangePasswordAPIView(APIView):
         new_password = serializer.validated_data["new_password"]
 
         request.user.set_password(new_password)
-        request.user.plain_password = new_password
+        request.user.plain_password = None
         request.user.must_change_password = False
         request.user.save(update_fields=["password", "plain_password", "must_change_password"])
 
@@ -1381,12 +1381,18 @@ class OperatorCompletedRequestsAPIView(APIView):
 
         one_month_ago = timezone.now() - timedelta(days=30)
 
+        filter_kwargs = {
+            "pump": pump,
+            "status__in": [FuelRequest.Status.COMPLETED, FuelRequest.Status.APPROVED],
+            "created_at__gte": one_month_ago,
+        }
+
+        # Each operator only sees their own completed/approved requests
+        if request.user.role == User.Role.OPERATOR:
+            filter_kwargs["operator"] = request.user
+
         fuel_requests = (
-            FuelRequest.objects.filter(
-                pump=pump,
-                status__in=[FuelRequest.Status.COMPLETED, FuelRequest.Status.APPROVED],
-                created_at__gte=one_month_ago,
-            )
+            FuelRequest.objects.filter(**filter_kwargs)
             .select_related("driver", "truck", "pump", "truck__customer", "operator")
             .order_by("-completed_at", "-updated_at", "-created_at")
         )

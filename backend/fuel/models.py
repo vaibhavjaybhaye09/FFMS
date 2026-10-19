@@ -9,44 +9,28 @@ from django.contrib.auth.models import AbstractBaseUser, BaseUserManager
 
 class UserManager(BaseUserManager):
 
-    def create_user(self, username=None, mobile_number=None, password=None, **extra_fields):
-
-        if not username and not mobile_number:
-            raise ValueError("Username or mobile number is required")
-
-        if not username:
-            username = mobile_number
-
+    def create_user(self, mobile_number, password=None, **extra_fields):
         if not mobile_number:
-            mobile_number = username
+            raise ValueError("The Mobile Number must be set")
+        
+        # Agar username nahi diya, toh mobile number ko hi username bana do
+        if not extra_fields.get("username"):
+            extra_fields["username"] = mobile_number
 
-        user = self.model(
-            username=username,
-            mobile_number=mobile_number,
-            **extra_fields
-        )
-
+        user = self.model(mobile_number=mobile_number, **extra_fields)
         user.set_password(password)
         user.save(using=self._db)
-
         return user
 
-    def create_superuser(self, username="admin", mobile_number="1234567890", password=None, **extra_fields):
-
+    def create_superuser(self, mobile_number, password=None, **extra_fields):
         extra_fields.setdefault("role", User.Role.ADMIN)
         extra_fields.setdefault("is_staff", True)
         extra_fields.setdefault("is_superuser", True)
         extra_fields.setdefault("is_active", True)
         extra_fields.setdefault("approval_status", User.ApprovalStatus.APPROVED)
+        extra_fields.setdefault("first_name", "Admin")
 
-        return self.create_user(
-            username=username,
-            mobile_number=mobile_number,
-            password=password,
-            **extra_fields
-        )
-
-
+        return self.create_user(mobile_number, password, **extra_fields)
 # ============================================================
 # USER
 # ============================================================

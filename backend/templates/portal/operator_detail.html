@@ -33,10 +33,10 @@
                     <span>&bull;</span>
                     <span>
                         <i class="fa-solid fa-key text-amber-500 mr-1"></i>Password: 
-                        {% if operator.plain_password %}
-                        <span class="px-2 py-0.5 rounded bg-amber-50 text-amber-800 font-bold font-mono border border-amber-200">{{ operator.plain_password }}</span>
+                        {% if operator.must_change_password and operator.plain_password %}
+                        <span class="px-2 py-0.5 rounded bg-amber-50 text-amber-800 font-bold font-mono border border-amber-200">{{ operator.plain_password }} <span class="text-[9px] text-amber-600">(Temp)</span></span>
                         {% else %}
-                        <span class="italic text-slate-400">Encrypted</span>
+                        <span class="italic text-slate-400 font-sans"><i class="fa-solid fa-lock text-[10px] text-emerald-600 mr-0.5"></i>Set by Operator</span>
                         {% endif %}
                     </span>
                     <span>&bull;</span>

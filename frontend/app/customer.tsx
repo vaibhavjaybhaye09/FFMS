@@ -516,18 +516,30 @@ export default function CustomerScreen() {
                         <Text style={styles.drvCredLabel}>Password:</Text>
                       </View>
                       <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                        <Text style={[styles.drvCredVal, { color: C.yellow, marginRight: 8, letterSpacing: visiblePasswords[drv.id] ? 0.5 : 2 }]}>
-                          {visiblePasswords[drv.id] ? (drv.password || 'Not Set') : (drv.password ? '••••••••' : '—')}
-                        </Text>
                         {drv.password ? (
-                          <TouchableOpacity onPress={() => togglePasswordVisibility(drv.id)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                            <Ionicons
-                              name={visiblePasswords[drv.id] ? "eye-off-outline" : "eye-outline"}
-                              size={16}
-                              color={C.textSub}
-                            />
-                          </TouchableOpacity>
-                        ) : null}
+                          <>
+                            <Text style={[styles.drvCredVal, { color: C.yellow, marginRight: 6, letterSpacing: visiblePasswords[drv.id] ? 0.5 : 2 }]}>
+                              {visiblePasswords[drv.id] ? drv.password : '••••••••'}
+                            </Text>
+                            <View style={{ backgroundColor: 'rgba(217, 119, 6, 0.15)', paddingHorizontal: 5, paddingVertical: 2, borderRadius: 4, marginRight: 8 }}>
+                              <Text style={{ fontSize: 9, color: C.yellow, fontWeight: '800' }}>TEMP</Text>
+                            </View>
+                            <TouchableOpacity onPress={() => togglePasswordVisibility(drv.id)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                              <Ionicons
+                                name={visiblePasswords[drv.id] ? "eye-off-outline" : "eye-outline"}
+                                size={16}
+                                color={C.textSub}
+                              />
+                            </TouchableOpacity>
+                          </>
+                        ) : (
+                          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                            <Ionicons name="lock-closed" size={12} color={C.green} style={{ marginRight: 4 }} />
+                            <Text style={[styles.drvCredVal, { color: C.textMuted, fontSize: 12, fontStyle: 'italic' }]}>
+                              Set by Driver
+                            </Text>
+                          </View>
+                        )}
                       </View>
                     </View>
 

@@ -44,7 +44,7 @@
 
     <!-- 4 Main KPI Cards -->
     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        
+
         <!-- Total Fuel Dispensed -->
         <div class="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
             <div class="flex items-center justify-between mb-3">
@@ -127,10 +127,12 @@
                     <div class="p-3 rounded-xl bg-slate-50 border border-slate-100 flex items-center justify-between hover:bg-slate-100 transition-colors">
                         <div class="flex items-center space-x-3">
                             <div class="w-9 h-9 rounded-xl bg-sky-100 text-sky-700 font-bold flex items-center justify-center text-xs">
-                                {{ op.first_name|default:op.username|slice:":2"|upper }}
+                                {{ op.first_name|default:op.username|default:"OP"|slice:":2"|upper }}
                             </div>
                             <div>
-                                <h3 class="text-xs font-bold text-slate-900">{{ op.first_name|default:op.username }}</h3>
+                                <h3 class="text-xs font-bold text-slate-900">
+                                    {{ op.first_name|default:op.username|default:"Operator" }}
+                                </h3>
                                 <p class="text-[11px] text-slate-500 font-mono">{{ op.mobile_number }}</p>
                             </div>
                         </div>
@@ -195,10 +197,10 @@
                                         <span class="ind-blue">IND</span>
                                         <span class="plate-text">{{ req.truck.truck_number }}</span>
                                     </div>
-                                    <div class="text-[10px] text-slate-500 mt-0.5">Driver: {{ req.driver.first_name|default:req.driver.mobile_number }}</div>
+                                    <div class="text-[10px] text-slate-500 mt-0.5">Driver: {% firstof req.driver.first_name req.driver.mobile_number %}</div>
                                 </td>
                                 <td class="py-3">
-                                    <span class="font-semibold text-slate-800">{{ req.operator.first_name|default:req.operator.username|default:"Unassigned" }}</span>
+                                    <span class="font-semibold text-slate-800">{% firstof req.operator.first_name req.operator.username "Unassigned" %}</span>
                                 </td>
                                 <td class="py-3">
                                     <span class="font-bold text-sky-700">{{ req.approved_liters|default:req.requested_liters }} L</span>
@@ -209,13 +211,13 @@
                                 <td class="py-3">
                                     <div class="flex items-center space-x-1.5">
                                         {% if req.dispenser_reading_image %}
-                                        <button onclick="openImageModal('{{ req.dispenser_reading_image.url }}', 'Dispenser Meter Reading - {{ req.request_number }}', 'Truck {{ req.truck.truck_number }} &bull; {{ req.approved_liters }} Liters')" 
+                                        <button onclick="openImageModal('{{ req.dispenser_reading_image.url }}', 'Dispenser Meter Reading - {{ req.request_number }}', 'Truck {{ req.truck.truck_number }} &bull; {{ req.approved_liters }} Liters')"
                                                 class="w-7 h-7 rounded bg-slate-100 hover:bg-sky-100 border border-slate-200 flex items-center justify-center text-sky-600 hover:border-sky-300 transition-colors" title="View Meter Image">
                                             <i class="fa-solid fa-gauge text-xs"></i>
                                         </button>
                                         {% endif %}
                                         {% if req.vehicle_plate_image %}
-                                        <button onclick="openImageModal('{{ req.vehicle_plate_image.url }}', 'Vehicle Plate Photo - {{ req.request_number }}', 'Vehicle Plate {{ req.truck.truck_number }}')" 
+                                        <button onclick="openImageModal('{{ req.vehicle_plate_image.url }}', 'Vehicle Plate Photo - {{ req.request_number }}', 'Vehicle Plate {{ req.truck.truck_number }}')"
                                                 class="w-7 h-7 rounded bg-slate-100 hover:bg-emerald-100 border border-slate-200 flex items-center justify-center text-emerald-600 hover:border-emerald-300 transition-colors" title="View Vehicle Image">
                                             <i class="fa-solid fa-id-card text-xs"></i>
                                         </button>
@@ -226,7 +228,7 @@
                                     </div>
                                 </td>
                                 <td class="py-3">
-                                    <span class="px-2 py-0.5 rounded text-[10px] font-extrabold uppercase 
+                                    <span class="px-2 py-0.5 rounded text-[10px] font-extrabold uppercase
                                         {% if req.status == 'COMPLETED' or req.status == 'APPROVED' %}bg-emerald-100 text-emerald-800 border border-emerald-200
                                         {% elif req.status == 'PENDING' %}bg-amber-100 text-amber-800 border border-amber-200
                                         {% else %}bg-red-100 text-red-800 border border-red-200{% endif %}">

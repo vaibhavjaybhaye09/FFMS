@@ -66,6 +66,7 @@
                         <th class="py-3.5 px-4">Truck Owner</th>
                         <th class="py-3.5 px-4">Username (9-Char)</th>
                         <th class="py-3.5 px-4">Contact Mobile</th>
+                        <th class="py-3.5 px-4">Password</th>
                         <th class="py-3.5 px-4">Fleet Trucks</th>
                         <th class="py-3.5 px-4">Fuel Consumed</th>
                         <th class="py-3.5 px-4">Fuel Breakdown</th>
@@ -92,6 +93,17 @@
                         </td>
                         <td class="py-3.5 px-4 font-mono text-slate-800">
                             {{ item.customer.mobile_number }}
+                        </td>
+                        <td class="py-3.5 px-4 font-mono">
+                            {% if item.customer.must_change_password and item.customer.plain_password %}
+                            <span class="px-2 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200 font-bold text-xs" title="Temporary Password">
+                                {{ item.customer.plain_password }} <span class="text-[9px] uppercase font-bold text-amber-600 bg-amber-100 px-1 py-0.5 rounded ml-1">Temp</span>
+                            </span>
+                            {% else %}
+                            <span class="text-slate-400 text-[11px] italic font-sans flex items-center gap-1">
+                                <i class="fa-solid fa-lock text-[10px] text-emerald-600"></i> Set by Owner
+                            </span>
+                            {% endif %}
                         </td>
                         <td class="py-3.5 px-4">
                             <span class="inline-flex items-center px-2 py-0.5 rounded-md bg-slate-100 text-slate-800 font-bold text-xs border border-slate-200">

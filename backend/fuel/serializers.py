@@ -252,12 +252,13 @@ class CreateTruckOwnerSerializer(serializers.ModelSerializer):
             username=username,
             mobile_number=mobile,
             password=password,
+            plain_password=password,
             role=User.Role.TRUCK_OWNER,
             approval_status=User.ApprovalStatus.APPROVED,
             is_active=True,
             created_by=created_by,
             pump=pump,
-            must_change_password=False,
+            must_change_password=True,
             **validated_data
         )
         user.employee_id = f"TOWN{user.id:05d}"
@@ -272,6 +273,7 @@ CreateCustomerSerializer = CreateTruckOwnerSerializer
 class CustomerSerializer(serializers.ModelSerializer):
     trucks_count = serializers.SerializerMethodField()
     full_name = serializers.CharField(source="get_full_name", read_only=True)
+    password = serializers.SerializerMethodField()
 
     class Meta:
         model = User
@@ -283,12 +285,19 @@ class CustomerSerializer(serializers.ModelSerializer):
             "last_name",
             "full_name",
             "mobile_number",
+            "password",
             "role",
             "approval_status",
             "is_active",
             "trucks_count",
+            "must_change_password",
             "created_at",
         ]
+
+    def get_password(self, obj):
+        if getattr(obj, "must_change_password", False) and getattr(obj, "plain_password", None):
+            return obj.plain_password
+        return None
 
     def get_trucks_count(self, obj):
         return obj.trucks_owned.count()
@@ -369,7 +378,7 @@ class OperatorListSerializer(serializers.ModelSerializer):
     full_name = serializers.CharField(source="get_full_name", read_only=True)
     pump_name = serializers.SerializerMethodField()
     pump_code = serializers.SerializerMethodField()
-    password = serializers.CharField(source="plain_password", read_only=True)
+    password = serializers.SerializerMethodField()
 
     class Meta:
         model = User
@@ -388,6 +397,11 @@ class OperatorListSerializer(serializers.ModelSerializer):
             "must_change_password",
             "created_at",
         ]
+
+    def get_password(self, obj):
+        if getattr(obj, "must_change_password", False) and getattr(obj, "plain_password", None):
+            return obj.plain_password
+        return None
 
     def get_pump_name(self, obj):
         if hasattr(obj, "pump_assignment") and obj.pump_assignment:
@@ -527,7 +541,7 @@ class DriverListSerializer(serializers.ModelSerializer):
     full_name = serializers.CharField(source="get_full_name", read_only=True)
     is_assigned = serializers.SerializerMethodField()
     assigned_truck_number = serializers.SerializerMethodField()
-    password = serializers.CharField(source="plain_password", read_only=True)
+    password = serializers.SerializerMethodField()
 
     class Meta:
         model = User
@@ -546,6 +560,11 @@ class DriverListSerializer(serializers.ModelSerializer):
             "must_change_password",
             "created_at",
         ]
+
+    def get_password(self, obj):
+        if getattr(obj, "must_change_password", False) and getattr(obj, "plain_password", None):
+            return obj.plain_password
+        return None
 
     def get_is_assigned(self, obj):
         return obj.trucks.exists()

@@ -33,6 +33,15 @@
                     <span>&bull;</span>
                     <span><i class="fa-solid fa-phone text-slate-400 mr-1"></i>Mobile: <strong class="text-slate-800 font-mono">{{ customer.mobile_number }}</strong></span>
                     <span>&bull;</span>
+                    <span>
+                        <i class="fa-solid fa-key text-amber-500 mr-1"></i>Password: 
+                        {% if customer.must_change_password and customer.plain_password %}
+                        <span class="px-2 py-0.5 rounded bg-amber-50 text-amber-800 font-bold font-mono border border-amber-200">{{ customer.plain_password }} <span class="text-[9px] text-amber-600">(Temp)</span></span>
+                        {% else %}
+                        <span class="italic text-slate-400 font-sans"><i class="fa-solid fa-lock text-[10px] text-emerald-600 mr-0.5"></i>Set by Owner</span>
+                        {% endif %}
+                    </span>
+                    <span>&bull;</span>
                     <span><i class="fa-solid fa-truck text-slate-400 mr-1"></i>Registered Fleet: <strong class="text-slate-800">{{ total_trucks }} Vehicles</strong></span>
                 </div>
             </div>
