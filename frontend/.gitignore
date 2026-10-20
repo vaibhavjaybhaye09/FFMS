@@ -91,3 +91,5 @@ backend/vehicle_verification/
 
 # Expo
 .expo/
+android/
+ios/

@@ -6,4 +6,8 @@ db.sqlite3
 backend/db.sqlite3
 *.__pycache__/
 __pycache__/
-envF
+envF
+.expo/
+frontend/.expo/
+frontend/android/
+frontend/ios/

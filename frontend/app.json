@@ -1,11 +1,11 @@
 {
   "expo": {
-    "name": "FuleFleet",
-    "slug": "fule_fleet",
+    "name": "FuelFleet",
+    "slug": "fuelfleet",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "fule_fleet",
+    "scheme": "fuelfleet",
     "userInterfaceStyle": "automatic",
     "ios": {
       "supportsTablet": true
@@ -18,7 +18,7 @@
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
-      "package": "com.vaibhvawolf.fule_fleet"
+      "package": "com.vaibhvawolf.fuelfleet"
     },
     "web": {
       "output": "static",
@@ -44,13 +44,12 @@
       "expo-web-browser"
     ],
     "experiments": {
-      "typedRoutes": true,
-      "reactCompiler": true
+      "typedRoutes": true
     },
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "476cbb2e-c0b5-480d-a114-5307206fe3bd"
+        "projectId": "3a8fb5cc-b97f-4ef4-8901-6f25fa61ec35"
       }
     }
   }
