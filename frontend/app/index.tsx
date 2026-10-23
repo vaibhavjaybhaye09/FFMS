@@ -71,7 +71,6 @@ export default function AuthScreen() {
   const glowPulse = useRef(new Animated.Value(1)).current;
 
   const routeForRole = (userRole: string): string => {
-    if (userRole === 'DRIVER') return '/driver';
     if (userRole === 'OPERATOR') return '/operator';
     if (userRole === 'TRUCK_OWNER' || userRole === 'REGULAR_CUSTOMER') return '/customer';
     if (userRole === 'PUMP_ADMIN' || userRole === 'ADMIN') return '/pump-admin';
@@ -216,7 +215,7 @@ export default function AuthScreen() {
         type: 'success',
       });
       setTimeout(() => {
-        router.replace((targetRoute || '/driver') as any);
+        router.replace((targetRoute || '/customer') as any);
       }, 1200);
     } catch (err: any) {
       setPopup({
@@ -382,7 +381,7 @@ export default function AuthScreen() {
                 <View style={styles.footerNote}>
                   <Ionicons name="lock-closed" size={12} color="#000000" style={{ marginRight: 5 }} />
                   <Text style={styles.footerNoteText}>
-                    {t('role_auto_verified', 'Role is automatically verified. Pump Admin, Operator, Truck Owner & Driver.')}
+                    {t('role_auto_verified', 'Role is automatically verified: Pump Admin, Operator, or Truck Owner.')}
                   </Text>
                 </View>
               </Animated.View>

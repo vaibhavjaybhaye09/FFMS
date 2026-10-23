@@ -102,12 +102,15 @@ export default function OperatorScreen() {
       setQueue(response.data?.fuel_requests || []);
     } catch (error: any) {
       console.error('Error loading queue:', error);
-      setQueue([]);
+      // Preserve previously loaded data on refresh failure
+      if (refreshing) {
+        Alert.alert('Refresh Failed', 'Could not refresh queue. Showing cached data.');
+      }
     } finally {
       setLoadingQueue(false);
       setRefreshing(false);
     }
-  }, []);
+  }, [refreshing]);
 
   const loadCompleted = useCallback(async () => {
     setLoadingCompleted(true);
@@ -119,7 +122,7 @@ export default function OperatorScreen() {
       }
     } catch (error: any) {
       console.error('Error loading completed requests:', error);
-      setCompletedRequests([]);
+      // Preserve previously loaded data
     } finally {
       setLoadingCompleted(false);
       setRefreshing(false);
@@ -133,6 +136,7 @@ export default function OperatorScreen() {
   }, [loadUserData, loadQueue, loadCompleted]);
 
   const onRefresh = () => {
+    if (refreshing) return;
     setRefreshing(true);
     loadQueue();
     loadCompleted();
@@ -456,14 +460,14 @@ export default function OperatorScreen() {
                 <View style={styles.infoGrid}>
                   <View style={styles.infoRow}>
                     <Ionicons name="person-circle-outline" size={15} color={C.neon} />
-                    <Text style={styles.infoKey}>Driver</Text>
-                    <Text style={styles.infoVal}>{item.driver_name || 'Driver'}</Text>
+                    <Text style={styles.infoKey}>Truck Owner</Text>
+                    <Text style={styles.infoVal}>{item.customer_name || item.driver_name || 'Truck Owner'}</Text>
                   </View>
-                  {item.customer_name ? (
+                  {item.created_by_name ? (
                     <View style={styles.infoRow}>
-                      <Ionicons name="business-outline" size={15} color={C.yellow} />
-                      <Text style={styles.infoKey}>Fleet</Text>
-                      <Text style={styles.infoVal}>{item.customer_name}</Text>
+                      <Ionicons name="shield-checkmark-outline" size={15} color={C.yellow} />
+                      <Text style={styles.infoKey}>Created By</Text>
+                      <Text style={styles.infoVal}>{item.created_by_name} ({item.created_by_role || 'User'})</Text>
                     </View>
                   ) : null}
                   {item.remarks ? (
@@ -573,14 +577,14 @@ export default function OperatorScreen() {
                   <View style={[styles.infoGrid, { backgroundColor: 'rgba(0,200,83,0.05)', borderColor: 'rgba(0,200,83,0.2)' }]}>
                     <View style={styles.infoRow}>
                       <Ionicons name="person-circle-outline" size={15} color={C.neon} />
-                      <Text style={styles.infoKey}>Driver</Text>
-                      <Text style={styles.infoVal}>{item.driver_name || 'Driver'}</Text>
+                      <Text style={styles.infoKey}>Truck Owner</Text>
+                      <Text style={styles.infoVal}>{item.customer_name || item.driver_name || 'Truck Owner'}</Text>
                     </View>
-                    {item.customer_name ? (
+                    {item.created_by_name ? (
                       <View style={styles.infoRow}>
-                        <Ionicons name="business-outline" size={15} color={C.yellow} />
-                        <Text style={styles.infoKey}>Fleet</Text>
-                        <Text style={styles.infoVal}>{item.customer_name}</Text>
+                        <Ionicons name="shield-checkmark-outline" size={15} color={C.yellow} />
+                        <Text style={styles.infoKey}>Created By</Text>
+                        <Text style={styles.infoVal}>{item.created_by_name} ({item.created_by_role || 'User'})</Text>
                       </View>
                     ) : null}
                     <View style={styles.infoRow}>

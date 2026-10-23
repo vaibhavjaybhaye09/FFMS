@@ -117,7 +117,7 @@
                         <th class="py-3 px-4">Tank Capacity</th>
                         <th class="py-3 px-4">Fuel Consumed</th>
                         <th class="py-3 px-4">Fuelings Count</th>
-                        <th class="py-3 px-4">Assigned Driver</th>
+                        <th class="py-3 px-4">Status</th>
                     </tr>
                 </thead>
                 <tbody class="divide-y divide-slate-100">
@@ -144,11 +144,14 @@
                             {{ item.requests_count }} Fuelings
                         </td>
                         <td class="py-3 px-4">
-                            {% if item.truck.driver %}
-                            <div class="font-bold text-slate-800">{{ item.truck.driver.first_name|default:item.truck.driver.username }}</div>
-                            <div class="text-[10px] text-slate-400 font-mono">{{ item.truck.driver.mobile_number }}</div>
+                            {% if item.truck.is_active %}
+                            <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 mr-1.5"></span> Active
+                            </span>
                             {% else %}
-                            <span class="text-red-500 font-semibold italic text-[11px]">Unassigned</span>
+                            <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-slate-100 text-slate-500 border border-slate-200">
+                                Inactive
+                            </span>
                             {% endif %}
                         </td>
                     </tr>
@@ -179,7 +182,7 @@
                         <th class="py-3.5 px-4">Request #</th>
                         <th class="py-3.5 px-4">Date & Time</th>
                         <th class="py-3.5 px-4">Truck Number</th>
-                        <th class="py-3.5 px-4">Driver</th>
+                        <th class="py-3.5 px-4">Created By</th>
                         <th class="py-3.5 px-4">Operator</th>
                         <th class="py-3.5 px-4">Fuel & Liters</th>
                         <th class="py-3.5 px-4">Dispenser Meter Image</th>
@@ -203,7 +206,7 @@
                             </div>
                         </td>
                         <td class="py-3.5 px-4 font-medium text-slate-800">
-                            {{ req.driver.first_name|default:req.driver.mobile_number }}
+                            {% firstof req.created_by.first_name req.created_by.username req.driver.first_name "Owner" %}
                         </td>
                         <td class="py-3.5 px-4 text-slate-700 font-medium">
                             {{ req.operator.first_name|default:req.operator.username|default:"Unassigned" }}

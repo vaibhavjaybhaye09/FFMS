@@ -145,7 +145,7 @@
                         <th class="py-3.5 px-4">Request #</th>
                         <th class="py-3.5 px-4">Date & Time</th>
                         <th class="py-3.5 px-4">Truck Number</th>
-                        <th class="py-3.5 px-4">Driver</th>
+                        <th class="py-3.5 px-4">Owner / Requester</th>
                         <th class="py-3.5 px-4">Fuel</th>
                         <th class="py-3.5 px-4">Dispensed L</th>
                         <th class="py-3.5 px-4">Dispenser Meter Image</th>
@@ -169,7 +169,7 @@
                             </div>
                         </td>
                         <td class="py-3.5 px-4 font-medium text-slate-800">
-                            {{ req.driver.first_name|default:req.driver.mobile_number }}
+                            {% firstof req.truck.customer.first_name req.truck.customer.username req.created_by.first_name req.driver.first_name "Fleet Owner" %}
                         </td>
                         <td class="py-3.5 px-4">
                             <span class="px-2 py-0.5 rounded text-[10px] font-bold {% if req.fuel_type == 'DIESEL' %}bg-sky-50 text-sky-700 border border-sky-200{% else %}bg-amber-50 text-amber-700 border border-amber-200{% endif %}">

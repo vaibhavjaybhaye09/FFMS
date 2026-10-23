@@ -20,6 +20,7 @@ from .serializers import (
     AssignDriverSerializer,
     AssignOperatorSerializer,
     CreateFuelRequestSerializer,
+    BulkFuelRequestCreateSerializer,
     FuelRequestSerializer,
     CreateCustomerSerializer,
     CreateTruckOwnerSerializer,
@@ -564,7 +565,7 @@ class PumpAdminOperatorDeleteAPIView(APIView):
 
 class PumpAdminDashboardStatsAPIView(APIView):
     """
-    Summary metrics for Pump Admin (scoped to their own data).
+    Summary metrics for Pump Admin dashboard (scoped to operational pump data).
     """
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
@@ -583,38 +584,145 @@ class PumpAdminDashboardStatsAPIView(APIView):
             pump = Pump.objects.first()
 
         if request.user.role == User.Role.ADMIN or request.user.is_superuser:
+            req_qs = FuelRequest.objects.all()
+            truck_qs = Truck.objects.filter(customer__isnull=False)
             total_customers = User.objects.filter(role__in=[User.Role.TRUCK_OWNER, User.Role.REGULAR_CUSTOMER]).count()
             total_trucks = Truck.objects.count()
             total_operators = User.objects.filter(role=User.Role.OPERATOR).count()
-            total_requests = FuelRequest.objects.count()
-            pending_requests = FuelRequest.objects.filter(status=FuelRequest.Status.PENDING).count()
-            completed_requests = FuelRequest.objects.filter(status=FuelRequest.Status.COMPLETED).count()
         else:
+            req_qs = FuelRequest.objects.filter(pump=pump) if pump else FuelRequest.objects.none()
+            truck_qs = Truck.objects.filter(
+                Q(customer__created_by=request.user) | Q(customer__pump=pump) | Q(customer__isnull=False)
+            ).distinct()
             total_customers = User.objects.filter(
                 role__in=[User.Role.TRUCK_OWNER, User.Role.REGULAR_CUSTOMER]
             ).filter(Q(created_by=request.user) | Q(pump=pump)).distinct().count()
-
             total_trucks = Truck.objects.filter(
                 Q(customer__created_by=request.user) | Q(customer__pump=pump)
             ).distinct().count()
-
             total_operators = pump.operators.count() if pump else 0
-            total_requests = FuelRequest.objects.filter(pump=pump).count() if pump else 0
-            pending_requests = FuelRequest.objects.filter(pump=pump, status=FuelRequest.Status.PENDING).count() if pump else 0
-            completed_requests = FuelRequest.objects.filter(pump=pump, status=FuelRequest.Status.COMPLETED).count() if pump else 0
+
+        total_requests = req_qs.count()
+        pending_requests = req_qs.filter(status=FuelRequest.Status.PENDING).count()
+        approved_requests = req_qs.filter(status=FuelRequest.Status.APPROVED).count()
+        rejected_requests = req_qs.filter(status=FuelRequest.Status.REJECTED).count()
+        completed_requests = req_qs.filter(status=FuelRequest.Status.COMPLETED).count()
+
+        # Available trucks eligible for request creation: active trucks without active pending/approved request
+        active_truck_ids = set(
+            FuelRequest.objects.filter(
+                status__in=[
+                    FuelRequest.Status.PENDING,
+                    FuelRequest.Status.APPROVED,
+                    FuelRequest.Status.VERIFIED,
+                ]
+            ).values_list("truck_id", flat=True)
+        )
+        eligible_trucks_count = truck_qs.filter(is_active=True).exclude(id__in=active_truck_ids).count()
+
+        # Recent requests (latest 10)
+        recent_requests = (
+            req_qs.select_related("truck", "truck__customer", "pump", "operator")
+            .order_by("-created_at")[:10]
+        )
 
         return Response(
             {
                 "pump": PumpSerializer(pump).data if pump else None,
                 "stats": {
-                    "total_customers": total_customers,
-                    "total_trucks": total_trucks,
-                    "total_operators": total_operators,
                     "total_requests": total_requests,
                     "pending_requests": pending_requests,
+                    "approved_requests": approved_requests,
+                    "rejected_requests": rejected_requests,
                     "completed_requests": completed_requests,
-                }
+                    "eligible_trucks_count": eligible_trucks_count,
+                    "total_trucks": total_trucks,
+                    "total_customers": total_customers,
+                    "total_operators": total_operators,
+                },
+                "recent_requests": FuelRequestSerializer(recent_requests, many=True).data,
             },
+            status=status.HTTP_200_OK
+        )
+
+
+class PumpAdminEligibleTrucksAPIView(APIView):
+    """
+    Pump Admin lists owner-added trucks with their eligibility status
+    to create single fuel requests.
+    """
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        if request.user.role not in [User.Role.ADMIN, User.Role.PUMP_ADMIN]:
+            return Response(
+                {"error": "Only pump admins can view eligible trucks."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        pump = Pump.objects.filter(pump_admin=request.user).first() or request.user.pump
+        if not pump and (request.user.role == User.Role.ADMIN or request.user.is_superuser):
+            pump = Pump.objects.first()
+
+        qs = Truck.objects.filter(customer__isnull=False).select_related("customer").order_by("-is_active", "truck_number")
+
+        search_q = request.query_params.get("q", "").strip()
+        if search_q:
+            qs = qs.filter(
+                Q(truck_number__icontains=search_q) |
+                Q(customer__first_name__icontains=search_q) |
+                Q(customer__last_name__icontains=search_q) |
+                Q(customer__mobile_number__icontains=search_q)
+            )
+
+        return Response(
+            {"trucks": TruckSerializer(qs, many=True).data},
+            status=status.HTTP_200_OK
+        )
+
+
+class PumpAdminFuelRequestsAPIView(APIView):
+    """
+    Pump Admin lists and filters all fuel requests for their pump station.
+    Supports ?status=PENDING/APPROVED/REJECTED/COMPLETED/ALL and search query ?q=.
+    """
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        if request.user.role not in [User.Role.ADMIN, User.Role.PUMP_ADMIN]:
+            return Response(
+                {"error": "Only pump admin can view pump fuel requests."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        pump = Pump.objects.filter(pump_admin=request.user).first() or request.user.pump
+        if not pump and (request.user.role == User.Role.ADMIN or request.user.is_superuser):
+            pump = Pump.objects.first()
+
+        qs = FuelRequest.objects.filter(pump=pump) if pump else FuelRequest.objects.none()
+        if request.user.role == User.Role.ADMIN or request.user.is_superuser:
+            qs = FuelRequest.objects.all()
+
+        status_param = request.query_params.get("status", "").strip().upper()
+        if status_param and status_param != "ALL":
+            qs = qs.filter(status=status_param)
+
+        search_q = request.query_params.get("q", "").strip()
+        if search_q:
+            qs = qs.filter(
+                Q(request_number__icontains=search_q) |
+                Q(truck__truck_number__icontains=search_q) |
+                Q(truck__customer__first_name__icontains=search_q) |
+                Q(truck__customer__last_name__icontains=search_q) |
+                Q(truck__customer__mobile_number__icontains=search_q)
+            )
+
+        fuel_requests = qs.select_related("truck", "truck__customer", "pump", "operator", "created_by").order_by("-created_at")
+
+        return Response(
+            {"fuel_requests": FuelRequestSerializer(fuel_requests, many=True).data},
             status=status.HTTP_200_OK
         )
 
@@ -898,24 +1006,38 @@ class CustomerDashboardStatsAPIView(APIView):
 
         my_trucks = Truck.objects.filter(customer=request.user)
         total_trucks = my_trucks.count()
-        assigned_trucks = my_trucks.filter(driver__isnull=False).count()
-        unassigned_trucks = total_trucks - assigned_trucks
+        active_trucks = my_trucks.filter(is_active=True).count()
 
         my_requests = FuelRequest.objects.filter(truck__customer=request.user)
         total_requests = my_requests.count()
         pending_requests = my_requests.filter(status=FuelRequest.Status.PENDING).count()
         approved_requests = my_requests.filter(status=FuelRequest.Status.APPROVED).count()
+        rejected_requests = my_requests.filter(status=FuelRequest.Status.REJECTED).count()
         completed_requests = my_requests.filter(status=FuelRequest.Status.COMPLETED).count()
+
+        active_req_truck_ids = set(
+            my_requests.filter(
+                status__in=[
+                    FuelRequest.Status.PENDING,
+                    FuelRequest.Status.APPROVED,
+                    FuelRequest.Status.VERIFIED,
+                ]
+            ).values_list("truck_id", flat=True)
+        )
+        eligible_trucks = my_trucks.filter(is_active=True).exclude(id__in=active_req_truck_ids).count()
 
         return Response(
             {
                 "stats": {
                     "total_trucks": total_trucks,
-                    "assigned_trucks": assigned_trucks,
-                    "unassigned_trucks": unassigned_trucks,
+                    "active_trucks": active_trucks,
+                    "eligible_trucks": eligible_trucks,
+                    "assigned_trucks": total_trucks,
+                    "unassigned_trucks": 0,
                     "total_requests": total_requests,
                     "pending_requests": pending_requests,
                     "approved_requests": approved_requests,
+                    "rejected_requests": rejected_requests,
                     "completed_requests": completed_requests,
                 }
             },
@@ -1063,6 +1185,9 @@ class TruckUpdateAPIView(APIView):
             },
             status=status.HTTP_200_OK
         )
+
+    def patch(self, request, truck_id):
+        return self.put(request, truck_id)
 
 
 class TruckDeleteAPIView(APIView):
@@ -1275,6 +1400,37 @@ class CreateFuelRequestAPIView(APIView):
                     "Waiting for operator approval."
                 ),
                 "fuel_request": FuelRequestSerializer(fuel_request).data
+            },
+            status=status.HTTP_201_CREATED
+        )
+
+
+class BulkFuelRequestCreateAPIView(APIView):
+    """
+    Truck Owner creates fuel requests for multiple trucks in a single bulk operation.
+    """
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        if request.user.role not in [User.Role.TRUCK_OWNER, User.Role.REGULAR_CUSTOMER, User.Role.ADMIN]:
+            return Response(
+                {"error": "Only Truck Owners can create bulk fuel requests."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        serializer = BulkFuelRequestCreateSerializer(
+            data=request.data,
+            context={"request": request}
+        )
+        serializer.is_valid(raise_exception=True)
+        created_requests = serializer.save()
+
+        return Response(
+            {
+                "message": f"Successfully created {len(created_requests)} fuel request(s).",
+                "count": len(created_requests),
+                "fuel_requests": FuelRequestSerializer(created_requests, many=True).data,
             },
             status=status.HTTP_201_CREATED
         )

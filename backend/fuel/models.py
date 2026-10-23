@@ -43,7 +43,7 @@ class User(AbstractBaseUser):
         TRUCK_OWNER = "TRUCK_OWNER", "Truck Owner"
         REGULAR_CUSTOMER = "REGULAR_CUSTOMER", "Regular Customer"
         OPERATOR = "OPERATOR", "Pump Operator"
-        DRIVER = "DRIVER", "Truck Driver"
+        DRIVER = "DRIVER", "Driver (Deprecated)"
 
     class ApprovalStatus(models.TextChoices):
         PENDING = "PENDING", "Pending"
@@ -91,7 +91,7 @@ class User(AbstractBaseUser):
     role = models.CharField(
         max_length=20,
         choices=Role.choices,
-        default=Role.DRIVER
+        default=Role.TRUCK_OWNER
     )
 
     approval_status = models.CharField(
@@ -296,7 +296,6 @@ class Truck(models.Model):
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
-        limit_choices_to={"role": User.Role.DRIVER},
         related_name="trucks"
     )
 
@@ -350,10 +349,20 @@ class FuelRequest(models.Model):
         unique=True
     )
 
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="created_fuel_requests",
+        help_text="User who submitted this request (Truck Owner or Pump Admin)"
+    )
+
     driver = models.ForeignKey(
         settings.AUTH_USER_MODEL,
-        on_delete=models.PROTECT,
-        limit_choices_to={"role": User.Role.DRIVER},
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
         related_name="fuel_requests"
     )
 

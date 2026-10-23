@@ -423,44 +423,100 @@ class OperatorListSerializer(serializers.ModelSerializer):
 # ============================================================
 
 class TruckSerializer(serializers.ModelSerializer):
-
-    driver_name = serializers.CharField(
-        source="driver.first_name",
-        read_only=True
-    )
-    driver_mobile = serializers.CharField(
-        source="driver.mobile_number",
-        read_only=True
-    )
-    customer_name = serializers.CharField(
-        source="customer.first_name",
-        read_only=True
-    )
+    customer_name = serializers.SerializerMethodField()
+    customer_mobile = serializers.SerializerMethodField()
+    driver_name = serializers.SerializerMethodField()
+    driver_mobile = serializers.SerializerMethodField()
+    has_active_request = serializers.SerializerMethodField()
+    active_request_id = serializers.SerializerMethodField()
+    active_request_number = serializers.SerializerMethodField()
+    active_request_status = serializers.SerializerMethodField()
+    is_eligible_for_request = serializers.SerializerMethodField()
 
     class Meta:
         model = Truck
-
         fields = [
             "id",
             "truck_number",
             "customer",
             "customer_name",
+            "customer_mobile",
             "driver",
             "driver_name",
             "driver_mobile",
             "fuel_type",
             "capacity_liters",
             "is_active",
+            "has_active_request",
+            "active_request_id",
+            "active_request_number",
+            "active_request_status",
+            "is_eligible_for_request",
+            "created_at",
+        ]
+        read_only_fields = [
+            "id",
+            "customer",
+            "customer_name",
+            "customer_mobile",
+            "driver_name",
+            "driver_mobile",
+            "has_active_request",
+            "active_request_id",
+            "active_request_number",
+            "active_request_status",
+            "is_eligible_for_request",
             "created_at",
         ]
 
-        read_only_fields = [
-            "id",
-            "customer_name",
-            "driver_name",
-            "driver_mobile",
-            "created_at",
-        ]
+    def _get_active_req(self, obj):
+        if not hasattr(obj, "_cached_active_req"):
+            obj._cached_active_req = obj.fuel_requests.filter(
+                status__in=[
+                    FuelRequest.Status.PENDING,
+                    FuelRequest.Status.APPROVED,
+                    FuelRequest.Status.VERIFIED,
+                ]
+            ).order_by("-created_at").first()
+        return obj._cached_active_req
+
+    def get_customer_name(self, obj):
+        if obj.customer:
+            return obj.customer.get_full_name() or obj.customer.username
+        return None
+
+    def get_customer_mobile(self, obj):
+        if obj.customer:
+            return obj.customer.mobile_number
+        return None
+
+    def get_driver_name(self, obj):
+        if obj.driver:
+            return obj.driver.get_full_name() or obj.driver.username
+        return None
+
+    def get_driver_mobile(self, obj):
+        if obj.driver:
+            return obj.driver.mobile_number
+        return None
+
+    def get_has_active_request(self, obj):
+        return self._get_active_req(obj) is not None
+
+    def get_active_request_id(self, obj):
+        req = self._get_active_req(obj)
+        return req.id if req else None
+
+    def get_active_request_number(self, obj):
+        req = self._get_active_req(obj)
+        return req.request_number if req else None
+
+    def get_active_request_status(self, obj):
+        req = self._get_active_req(obj)
+        return req.status if req else None
+
+    def get_is_eligible_for_request(self, obj):
+        return bool(obj.is_active and not self.get_has_active_request(obj))
 
 
 class CustomerTruckCreateSerializer(serializers.ModelSerializer):
@@ -618,89 +674,94 @@ class AssignDriverSerializer(serializers.Serializer):
 # ============================================================
 
 class FuelRequestSerializer(serializers.ModelSerializer):
-
-    driver_name = serializers.CharField(
-        source="driver.first_name",
-        read_only=True
-    )
-
-    truck_number = serializers.CharField(
-        source="truck.truck_number",
-        read_only=True
-    )
-
-    customer_name = serializers.CharField(
-        source="truck.customer.first_name",
-        read_only=True
-    )
-
-    pump_name = serializers.CharField(
-        source="pump.name",
-        read_only=True
-    )
-
-    operator_name = serializers.CharField(
-        source="operator.first_name",
-        read_only=True
-    )
+    driver_name = serializers.SerializerMethodField()
+    customer_name = serializers.SerializerMethodField()
+    customer_mobile = serializers.SerializerMethodField()
+    created_by_name = serializers.SerializerMethodField()
+    created_by_role = serializers.SerializerMethodField()
+    truck_number = serializers.CharField(source="truck.truck_number", read_only=True)
+    pump_name = serializers.CharField(source="pump.name", read_only=True)
+    pump_code = serializers.CharField(source="pump.code", read_only=True)
+    operator_name = serializers.CharField(source="operator.first_name", read_only=True)
 
     class Meta:
         model = FuelRequest
-
         fields = [
             "id",
             "request_number",
-
+            "created_by",
+            "created_by_name",
+            "created_by_role",
             "driver",
             "driver_name",
-
             "truck",
             "truck_number",
             "customer_name",
-
+            "customer_mobile",
             "pump",
             "pump_name",
-
+            "pump_code",
             "fuel_type",
-
             "requested_liters",
             "approved_liters",
-
             "operator",
             "operator_name",
-
             "dispenser_reading_image",
             "vehicle_plate_image",
             "status",
             "remarks",
-
             "created_at",
             "approved_at",
             "completed_at",
         ]
-
         read_only_fields = [
             "id",
             "request_number",
-
+            "created_by",
+            "created_by_name",
+            "created_by_role",
             "driver",
             "driver_name",
-
             "truck_number",
             "customer_name",
+            "customer_mobile",
             "pump_name",
-
+            "pump_code",
             "approved_liters",
-
             "operator",
             "operator_name",
-
             "status",
-
             "created_at",
             "approved_at",
             "completed_at",
         ]
+
+    def get_customer_name(self, obj):
+        if obj.truck and obj.truck.customer:
+            return obj.truck.customer.get_full_name() or obj.truck.customer.username
+        return None
+
+    def get_customer_mobile(self, obj):
+        if obj.truck and obj.truck.customer:
+            return obj.truck.customer.mobile_number
+        return None
+
+    def get_created_by_name(self, obj):
+        if obj.created_by:
+            return obj.created_by.get_full_name() or obj.created_by.username
+        if obj.driver:
+            return obj.driver.get_full_name() or obj.driver.username
+        return None
+
+    def get_created_by_role(self, obj):
+        if obj.created_by:
+            return obj.created_by.role
+        return None
+
+    def get_driver_name(self, obj):
+        if obj.driver:
+            return obj.driver.get_full_name() or obj.driver.username
+        return None
 
 # ============================================================
 # VEHICLE VERIFICATION SERIALIZER
@@ -771,7 +832,6 @@ ROLE_MAP = {
     "TRUCKOWNER": [User.Role.TRUCK_OWNER, User.Role.REGULAR_CUSTOMER],
     "REGULAR CUSTOMER": [User.Role.TRUCK_OWNER, User.Role.REGULAR_CUSTOMER],
     "REGULARCUSTOMER": [User.Role.TRUCK_OWNER, User.Role.REGULAR_CUSTOMER],
-    "DRIVER": [User.Role.DRIVER],
 }
 
 
@@ -868,14 +928,19 @@ class ChangePasswordSerializer(serializers.Serializer):
         return value
 
 # ============================================================
-# CREATE FUEL REQUEST SERIALIZER
+# CREATE FUEL REQUEST SERIALIZER (SINGLE & BULK)
 # ============================================================
 
 class CreateFuelRequestSerializer(serializers.ModelSerializer):
+    pump = serializers.PrimaryKeyRelatedField(
+        queryset=Pump.objects.filter(is_active=True),
+        required=False,
+        allow_null=True
+    )
+    fuel_type = serializers.CharField(required=False, allow_blank=True)
 
     class Meta:
         model = FuelRequest
-
         fields = [
             "truck",
             "pump",
@@ -885,136 +950,286 @@ class CreateFuelRequestSerializer(serializers.ModelSerializer):
         ]
 
     def validate(self, attrs):
+        request = self.context.get("request")
+        if not request or not request.user.is_authenticated:
+            raise serializers.ValidationError("Authentication required.")
+        user = request.user
 
-        request = self.context["request"]
-        driver = request.user
+        truck = attrs.get("truck")
+        pump = attrs.get("pump")
+        fuel_type = attrs.get("fuel_type")
+        requested_liters = attrs.get("requested_liters")
 
-        truck = attrs["truck"]
-        pump = attrs["pump"]
-        fuel_type = attrs["fuel_type"]
-        requested_liters = attrs["requested_liters"]
+        if not user.is_active:
+            raise serializers.ValidationError("Your account is inactive.")
+
+        if user.approval_status != User.ApprovalStatus.APPROVED:
+            raise serializers.ValidationError("Your account is not approved.")
 
         # ----------------------------------------------------
-        # Check logged-in user is DRIVER
+        # Role Validation: Truck Owner or Pump Admin
         # ----------------------------------------------------
+        if user.role in [User.Role.TRUCK_OWNER, User.Role.REGULAR_CUSTOMER]:
+            # Truck Owner must own the truck
+            if truck.customer_id != user.id:
+                raise serializers.ValidationError(
+                    {"truck": "This truck does not belong to your fleet."}
+                )
+            # Default pump to user's assigned pump or active pump if omitted
+            if not pump:
+                pump = user.pump or Pump.objects.filter(is_active=True).first()
+                if not pump:
+                    raise serializers.ValidationError(
+                        {"pump": "No active pump station found. Please specify a pump."}
+                    )
+                attrs["pump"] = pump
 
-        if driver.role != User.Role.DRIVER:
+        elif user.role in [User.Role.PUMP_ADMIN, User.Role.ADMIN]:
+            # Pump Admin can only create single requests using owner-added trucks
+            if not truck.customer:
+                raise serializers.ValidationError(
+                    {"truck": "This truck is not registered to any Truck Owner."}
+                )
+            if not pump:
+                pump = (
+                    Pump.objects.filter(pump_admin=user, is_active=True).first()
+                    or user.pump
+                    or Pump.objects.filter(is_active=True).first()
+                )
+                if not pump:
+                    raise serializers.ValidationError(
+                        {"pump": "No active pump station available."}
+                    )
+                attrs["pump"] = pump
+        else:
             raise serializers.ValidationError(
-                "Only a truck driver can create a fuel request."
+                "Only Truck Owners and Pump Admins can create fuel requests."
             )
-
-        # ----------------------------------------------------
-        # Check driver account
-        # ----------------------------------------------------
-
-        if not driver.is_active:
-            raise serializers.ValidationError(
-                "Your account is inactive."
-            )
-
-        if driver.approval_status != User.ApprovalStatus.APPROVED:
-            raise serializers.ValidationError(
-                "Your account is not approved."
-            )
-
-        # ----------------------------------------------------
-        # Check truck belongs to logged-in driver
-        # ----------------------------------------------------
-
-        if truck.driver_id != driver.id:
-            raise serializers.ValidationError(
-                "This truck is not assigned to you."
-            )
-
-        # ----------------------------------------------------
-        # Check truck is active
-        # ----------------------------------------------------
 
         if not truck.is_active:
             raise serializers.ValidationError(
-                "This truck is inactive."
+                {"truck": f"Truck {truck.truck_number} is currently marked inactive."}
             )
-
-        # ----------------------------------------------------
-        # Check pump is active
-        # ----------------------------------------------------
 
         if not pump.is_active:
             raise serializers.ValidationError(
-                "This pump is inactive."
+                {"pump": "Selected pump station is inactive."}
             )
 
         # ----------------------------------------------------
-        # Check requested liters
+        # Duplicate Request Prevention: No active pending/approved request
         # ----------------------------------------------------
+        active_request = FuelRequest.objects.filter(
+            truck=truck,
+            status__in=[
+                FuelRequest.Status.PENDING,
+                FuelRequest.Status.APPROVED,
+                FuelRequest.Status.VERIFIED,
+            ]
+        ).first()
+
+        if active_request:
+            raise serializers.ValidationError(
+                f"Truck '{truck.truck_number}' already has an active fuel request "
+                f"({active_request.request_number} - {active_request.status}). "
+                f"Duplicate requests are not permitted until the active request is completed."
+            )
+
+        # ----------------------------------------------------
+        # Fuel Type & Capacity Validation
+        # ----------------------------------------------------
+        if not fuel_type:
+            fuel_type = truck.fuel_type
+            attrs["fuel_type"] = fuel_type
+        elif truck.fuel_type != fuel_type:
+            raise serializers.ValidationError(
+                {"fuel_type": f"This truck uses {truck.fuel_type}."}
+            )
 
         if requested_liters <= 0:
             raise serializers.ValidationError(
-                {
-                    "requested_liters":
-                    "Requested liters must be greater than 0."
-                }
+                {"requested_liters": "Requested liters must be greater than 0."}
             )
 
-        # ----------------------------------------------------
-        # Check truck fuel type
-        # ----------------------------------------------------
-
-        if truck.fuel_type != fuel_type:
+        if truck.capacity_liters is not None and requested_liters > truck.capacity_liters:
             raise serializers.ValidationError(
                 {
-                    "fuel_type":
-                    f"This truck uses {truck.fuel_type}."
-                }
-            )
-
-        # ----------------------------------------------------
-        # Check truck capacity
-        # ----------------------------------------------------
-
-        if (
-            truck.capacity_liters is not None
-            and requested_liters > truck.capacity_liters
-        ):
-            raise serializers.ValidationError(
-                {
-                    "requested_liters":
-                    f"Requested fuel cannot exceed truck "
-                    f"capacity of {truck.capacity_liters} liters."
+                    "requested_liters": (
+                        f"Requested fuel ({requested_liters}L) exceeds truck "
+                        f"capacity of {truck.capacity_liters}L."
+                    )
                 }
             )
 
         return attrs
 
     def create(self, validated_data):
+        request = self.context.get("request")
+        user = request.user
 
-        request = self.context["request"]
-        driver = request.user
-
-        # Generate request number
-        last_request = (
-            FuelRequest.objects
-            .order_by("-id")
-            .first()
-        )
-
-        if last_request:
-            next_id = last_request.id + 1
-        else:
-            next_id = 1
-
+        last_request = FuelRequest.objects.order_by("-id").first()
+        next_id = (last_request.id + 1) if last_request else 1
         request_number = f"FR{next_id:05d}"
 
         fuel_request = FuelRequest.objects.create(
             request_number=request_number,
-            driver=driver,
+            created_by=user,
+            driver=None,
             status=FuelRequest.Status.PENDING,
             approved_liters=None,
             operator=None,
             **validated_data
         )
-
         return fuel_request
+
+
+class BulkFuelRequestItemSerializer(serializers.Serializer):
+    truck_id = serializers.IntegerField()
+    requested_liters = serializers.DecimalField(
+        max_digits=6, decimal_places=2, required=False, allow_null=True
+    )
+    fuel_type = serializers.CharField(max_length=10, required=False, allow_blank=True)
+    remarks = serializers.CharField(required=False, allow_blank=True, default="")
+
+
+class BulkFuelRequestCreateSerializer(serializers.Serializer):
+    pump_id = serializers.IntegerField(required=False, allow_null=True)
+    requests = BulkFuelRequestItemSerializer(many=True)
+
+    def validate(self, attrs):
+        request = self.context.get("request")
+        user = request.user
+
+        if user.role not in [User.Role.TRUCK_OWNER, User.Role.REGULAR_CUSTOMER, User.Role.ADMIN]:
+            raise serializers.ValidationError(
+                "Only Truck Owners can create bulk fuel requests. Pump Admins may only create single truck requests."
+            )
+
+        items = attrs.get("requests", [])
+        if not items:
+            raise serializers.ValidationError(
+                {"requests": "Please select at least one truck for bulk request."}
+            )
+
+        pump_id = attrs.get("pump_id")
+        pump = None
+        if pump_id:
+            pump = Pump.objects.filter(id=pump_id, is_active=True).first()
+            if not pump:
+                raise serializers.ValidationError({"pump_id": "Invalid or inactive pump station."})
+        elif user.pump:
+            pump = user.pump
+        else:
+            pump = Pump.objects.filter(is_active=True).first()
+
+        if not pump:
+            raise serializers.ValidationError("No active pump station found.")
+        attrs["pump"] = pump
+
+        truck_ids = [item["truck_id"] for item in items]
+        if len(truck_ids) != len(set(truck_ids)):
+            raise serializers.ValidationError("Duplicate truck IDs found in selection list.")
+
+        trucks = Truck.objects.filter(id__in=truck_ids)
+        truck_map = {t.id: t for t in trucks}
+
+        validated_items = []
+        errors = []
+
+        for item in items:
+            t_id = item["truck_id"]
+            truck = truck_map.get(t_id)
+            if not truck:
+                errors.append(f"Truck ID {t_id} does not exist.")
+                continue
+
+            # Ensure truck belongs to this Truck Owner
+            if user.role in [User.Role.TRUCK_OWNER, User.Role.REGULAR_CUSTOMER]:
+                if truck.customer_id != user.id:
+                    errors.append(f"Truck {truck.truck_number} does not belong to your fleet.")
+                    continue
+
+            if not truck.is_active:
+                errors.append(f"Truck {truck.truck_number} is marked inactive.")
+                continue
+
+            # Prevent duplicate active requests
+            active_req = FuelRequest.objects.filter(
+                truck=truck,
+                status__in=[
+                    FuelRequest.Status.PENDING,
+                    FuelRequest.Status.APPROVED,
+                    FuelRequest.Status.VERIFIED,
+                ]
+            ).first()
+
+            if active_req:
+                errors.append(
+                    f"Truck {truck.truck_number} already has an active request "
+                    f"({active_req.request_number} - {active_req.status})."
+                )
+                continue
+
+            liters = item.get("requested_liters")
+            if liters is None or liters <= 0:
+                liters = truck.capacity_liters or 100
+
+            if truck.capacity_liters is not None and liters > truck.capacity_liters:
+                errors.append(
+                    f"Truck {truck.truck_number} requested liters ({liters}L) "
+                    f"exceeds tank capacity ({truck.capacity_liters}L)."
+                )
+                continue
+
+            fuel_type = item.get("fuel_type") or truck.fuel_type
+
+            validated_items.append({
+                "truck": truck,
+                "requested_liters": liters,
+                "fuel_type": fuel_type,
+                "remarks": item.get("remarks", "") or "Bulk fleet request",
+            })
+
+        if errors:
+            raise serializers.ValidationError({"errors": errors})
+
+        attrs["validated_items"] = validated_items
+        return attrs
+
+    def create(self, validated_data):
+        from django.db import transaction
+        request = self.context.get("request")
+        user = request.user
+        pump = validated_data["pump"]
+        items = validated_data["validated_items"]
+
+        created_requests = []
+        with transaction.atomic():
+            last_request = (
+                FuelRequest.objects
+                .select_for_update()
+                .order_by("-id")
+                .first()
+            )
+            current_id = last_request.id if last_request else 0
+
+            for item in items:
+                current_id += 1
+                req_num = f"FR{current_id:05d}"
+                req = FuelRequest.objects.create(
+                    request_number=req_num,
+                    created_by=user,
+                    driver=None,
+                    truck=item["truck"],
+                    pump=pump,
+                    fuel_type=item["fuel_type"],
+                    requested_liters=item["requested_liters"],
+                    remarks=item["remarks"],
+                    status=FuelRequest.Status.PENDING,
+                )
+                created_requests.append(req)
+
+        return created_requests
 
 
 class VehicleVerificationRequestSerializer(serializers.Serializer):

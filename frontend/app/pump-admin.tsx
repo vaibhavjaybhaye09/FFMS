@@ -13,7 +13,6 @@ import {
   Modal,
   RefreshControl,
   StatusBar,
-  ImageBackground,
   Image,
 } from 'react-native';
 import { useRouter } from 'expo-router';
@@ -24,36 +23,74 @@ import { getUser, removeToken } from '../src/storage/token';
 import { useTranslation } from '../src/i18n/LanguageContext';
 
 const C = {
-  primary:    '#0284C7',
-  yellow:     '#D97706',
-  white:      '#FFFFFF',
-  red:        '#DC2626',
-  night:      '#F8FAFC',
-  nightCard:  '#FFFFFF',
-  nightCard2: '#F1F5F9',
-  nightBorder:'#E2E8F0',
-  neon:       '#0284C7',
-  green:      '#16A34A',
-  text:       '#0F172A',
-  textMuted:  '#64748B',
-  textSub:    '#334155',
+  primary:     '#0284C7',
+  primaryDim:  '#E0F2FE',
+  yellow:      '#D97706',
+  yellowDim:   '#FEF3C7',
+  green:       '#16A34A',
+  greenDim:    '#DCFCE7',
+  red:         '#DC2626',
+  redDim:      '#FEE2E2',
+  purple:      '#7C3AED',
+  purpleDim:   '#EDE9FE',
+  white:       '#FFFFFF',
+  night:       '#F8FAFC',
+  nightCard:   '#FFFFFF',
+  nightCard2:  '#F1F5F9',
+  nightBorder: '#E2E8F0',
+  neon:        '#0284C7',
+  text:        '#0F172A',
+  textMuted:   '#64748B',
+  textSub:     '#334155',
 };
+
+type TabType = 'dashboard' | 'requests' | 'create_req' | 'customers' | 'operators' | 'pump';
 
 export default function PumpAdminScreen() {
   const router = useRouter();
   const { t } = useTranslation();
 
-  const [activeTab, setActiveTab] = useState<'customers' | 'operators' | 'pump'>('customers');
+  const [activeTab, setActiveTab] = useState<TabType>('dashboard');
   const [adminUser, setAdminUser] = useState<any>(null);
   const [pump, setPump] = useState<any>(null);
-  const [stats, setStats] = useState({ total_customers: 0, total_trucks: 0, total_operators: 0, total_requests: 0 });
 
+  // Dynamic Dashboard Stats
+  const [stats, setStats] = useState({
+    total_customers: 0,
+    total_trucks: 0,
+    total_operators: 0,
+    total_requests: 0,
+    pending_requests: 0,
+    approved_requests: 0,
+    rejected_requests: 0,
+    completed_requests: 0,
+    eligible_trucks_count: 0,
+  });
+
+  const [recentRequests, setRecentRequests] = useState<any[]>([]);
+  const [allRequests, setAllRequests] = useState<any[]>([]);
+  const [eligibleTrucks, setEligibleTrucks] = useState<any[]>([]);
   const [customers, setCustomers] = useState<any[]>([]);
   const [operators, setOperators] = useState<any[]>([]);
+
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
-  // Modal 1: Create Truck Owner (9-char username & password)
+  // Requests Tab Filter & Search
+  const [requestFilter, setRequestFilter] = useState<string>('ALL');
+  const [requestSearch, setRequestSearch] = useState<string>('');
+
+  // Eligible Trucks Search (for single request creation)
+  const [truckSearch, setTruckSearch] = useState<string>('');
+
+  // Modal: Single Request Creation for Owner-Added Truck
+  const [createReqModal, setCreateReqModal] = useState(false);
+  const [selectedTruck, setSelectedTruck] = useState<any>(null);
+  const [reqLiters, setReqLiters] = useState('');
+  const [reqRemarks, setReqRemarks] = useState('');
+  const [submittingReq, setSubmittingReq] = useState(false);
+
+  // Modal: Create Truck Owner (9-char username & password)
   const [createCustomerModal, setCreateCustomerModal] = useState(false);
   const [custName, setCustName] = useState('');
   const [custMobile, setCustMobile] = useState('');
@@ -61,14 +98,20 @@ export default function PumpAdminScreen() {
   const [custPassword, setCustPassword] = useState('');
   const [submittingCustomer, setSubmittingCustomer] = useState(false);
 
-  // Modal 2: Create Pump Operator (auto-generated password)
+  // Modal: Create Pump Operator
   const [createOperatorModal, setCreateOperatorModal] = useState(false);
   const [opName, setOpName] = useState('');
   const [opMobile, setOpMobile] = useState('');
   const [submittingOperator, setSubmittingOperator] = useState(false);
 
-  // Modal 3: Generated Credentials Success Display
-  const [credModal, setCredModal] = useState<{ visible: boolean; title: string; username: string; password?: string; note: string }>({
+  // Modal: Generated Credentials Success Display
+  const [credModal, setCredModal] = useState<{
+    visible: boolean;
+    title: string;
+    username: string;
+    password?: string;
+    note: string;
+  }>({
     visible: false,
     title: '',
     username: '',
@@ -82,6 +125,7 @@ export default function PumpAdminScreen() {
   };
 
   const [uploadingLogo, setUploadingLogo] = useState(false);
+  const [opActionLoadingId, setOpActionLoadingId] = useState<number | null>(null);
 
   const getLogoUrl = (logoPath: string | null) => {
     if (!logoPath) return null;
@@ -89,6 +133,49 @@ export default function PumpAdminScreen() {
     return `${BASE_URL.replace(/\/$/, '')}${logoPath.startsWith('/') ? '' : '/'}${logoPath}`;
   };
 
+  const loadData = useCallback(async () => {
+    try {
+      const user = await getUser();
+      setAdminUser(user);
+
+      const [dashRes, trucksRes, requestsRes, custRes, opRes] = await Promise.all([
+        apiClient.get('/api/pump-admin/dashboard/').catch(() => ({ data: {} })),
+        apiClient.get('/api/pump-admin/eligible-trucks/').catch(() => ({ data: { trucks: [] } })),
+        apiClient.get('/api/pump-admin/fuel-requests/').catch(() => ({ data: { fuel_requests: [] } })),
+        apiClient.get('/api/pump-admin/customers/').catch(() => ({ data: { customers: [] } })),
+        apiClient.get('/api/pump-admin/operators/').catch(() => ({ data: { operators: [] } })),
+      ]);
+
+      if (dashRes.data?.pump) setPump(dashRes.data.pump);
+      if (dashRes.data?.stats) setStats(dashRes.data.stats);
+      if (dashRes.data?.recent_requests) setRecentRequests(dashRes.data.recent_requests);
+
+      if (trucksRes.data?.trucks) setEligibleTrucks(trucksRes.data.trucks);
+      if (requestsRes.data?.fuel_requests) setAllRequests(requestsRes.data.fuel_requests);
+      if (custRes.data?.customers) setCustomers(custRes.data.customers);
+      if (opRes.data?.operators) setOperators(opRes.data.operators);
+    } catch (error) {
+      console.error('Error loading pump admin data:', error);
+      if (refreshing) {
+        Alert.alert('Refresh Failed', 'Unable to refresh dashboard data. Showing existing cached data.');
+      }
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, [refreshing]);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
+
+  const onRefresh = () => {
+    if (refreshing) return;
+    setRefreshing(true);
+    loadData();
+  };
+
+  // Pick and Upload Station Logo
   const handlePickAndUploadLogo = async () => {
     try {
       const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -108,12 +195,8 @@ export default function PumpAdminScreen() {
       if (!result.canceled && result.assets && result.assets[0].base64) {
         setUploadingLogo(true);
         const base64Data = `data:image/jpeg;base64,${result.assets[0].base64}`;
-        const res = await apiClient.patch('/api/pump-admin/my-pump/', {
-          logo: base64Data,
-        });
-        if (res.data?.pump) {
-          setPump(res.data.pump);
-        }
+        const res = await apiClient.patch('/api/pump-admin/my-pump/', { logo: base64Data });
+        if (res.data?.pump) setPump(res.data.pump);
         Alert.alert('Success 🎉', 'Station logo updated successfully!');
         loadData();
       }
@@ -137,9 +220,7 @@ export default function PumpAdminScreen() {
             try {
               setUploadingLogo(true);
               const res = await apiClient.patch('/api/pump-admin/my-pump/', { logo: null });
-              if (res.data?.pump) {
-                setPump(res.data.pump);
-              }
+              if (res.data?.pump) setPump(res.data.pump);
               Alert.alert('Removed', 'Station logo removed successfully.');
               loadData();
             } catch (err: any) {
@@ -153,36 +234,69 @@ export default function PumpAdminScreen() {
     );
   };
 
-  const loadData = useCallback(async () => {
-    try {
-      const user = await getUser();
-      setAdminUser(user);
-
-      const [dashRes, custRes, opRes] = await Promise.all([
-        apiClient.get('/api/pump-admin/dashboard/').catch(() => ({ data: {} })),
-        apiClient.get('/api/pump-admin/customers/').catch(() => ({ data: { customers: [] } })),
-        apiClient.get('/api/pump-admin/operators/').catch(() => ({ data: { operators: [] } })),
-      ]);
-
-      if (dashRes.data?.pump) setPump(dashRes.data.pump);
-      if (dashRes.data?.stats) setStats(dashRes.data.stats);
-      setCustomers(custRes.data?.customers || []);
-      setOperators(opRes.data?.operators || []);
-    } catch (error) {
-      console.error('Error loading pump admin dashboard:', error);
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
+  // Open Single Fuel Request Creation Modal for a selected truck
+  const openSingleRequestModal = (truck: any) => {
+    if (!truck.is_eligible_for_request) {
+      Alert.alert(
+        'Truck Ineligible',
+        `Truck ${truck.truck_number} currently has an active request (${truck.active_request_status || 'Pending'}). Duplicate requests are not permitted.`
+      );
+      return;
     }
-  }, []);
+    setSelectedTruck(truck);
+    setReqLiters(String(truck.capacity || '50'));
+    setReqRemarks('');
+    setCreateReqModal(true);
+  };
 
-  useEffect(() => {
-    loadData();
-  }, [loadData]);
+  // Submit Single Fuel Request (Pump Admin)
+  const handleSubmitSingleRequest = async () => {
+    if (!selectedTruck) return;
+    const litersNum = parseFloat(reqLiters);
+    if (!litersNum || isNaN(litersNum) || litersNum <= 0) {
+      Alert.alert('Invalid Liters', 'Please enter a valid fuel quantity in liters (greater than 0).');
+      return;
+    }
 
-  const onRefresh = () => {
-    setRefreshing(true);
-    loadData();
+    if (selectedTruck.capacity && litersNum > selectedTruck.capacity) {
+      Alert.alert(
+        'Capacity Exceeded',
+        `Requested liters (${litersNum}L) cannot exceed truck fuel tank capacity (${selectedTruck.capacity}L).`
+      );
+      return;
+    }
+
+    setSubmittingReq(true);
+    try {
+      const res = await apiClient.post('/api/fuel-requests/create/', {
+        truck_id: selectedTruck.id,
+        requested_liters: litersNum,
+        remarks: reqRemarks.trim() || undefined,
+      });
+
+      const reqNum = res.data?.fuel_request?.request_number || 'New Request';
+      Alert.alert(
+        'Request Created 🎉',
+        `Fuel request ${reqNum} for truck ${selectedTruck.truck_number} has been submitted successfully.\n\nAssigned to your pump dispenser queue.`
+      );
+
+      setCreateReqModal(false);
+      setSelectedTruck(null);
+      setReqLiters('');
+      setReqRemarks('');
+      loadData();
+      setActiveTab('requests');
+    } catch (err: any) {
+      const msg =
+        err?.response?.data?.truck_id?.[0] ||
+        err?.response?.data?.requested_liters?.[0] ||
+        err?.response?.data?.error ||
+        err?.response?.data?.message ||
+        'Failed to create fuel request.';
+      Alert.alert('Creation Failed', msg);
+    } finally {
+      setSubmittingReq(false);
+    }
   };
 
   // Handle Create Truck Owner
@@ -278,7 +392,7 @@ export default function PumpAdminScreen() {
         title: 'Operator Created & Password Generated ⚡',
         username: cleanMobile,
         password: genPassword,
-        note: `System-generated password for ${cleanName} (last 3 digits + pump code + 3 random digits). They can log in with role 'PUMP OPERATOR' and will be prompted to create their own password on first login.`,
+        note: `System-generated password for ${cleanName} (last 3 digits + pump code + 3 random digits). They can log in with role 'PUMP OPERATOR'.`,
       });
     } catch (err: any) {
       const msg =
@@ -291,8 +405,6 @@ export default function PumpAdminScreen() {
       setSubmittingOperator(false);
     }
   };
-
-  const [opActionLoadingId, setOpActionLoadingId] = useState<number | null>(null);
 
   const handleToggleOperatorStatus = (op: any) => {
     const isCurrentlyActive = op.is_active !== false;
@@ -362,21 +474,66 @@ export default function PumpAdminScreen() {
     router.replace('/');
   };
 
-  const statItems = [
-    { icon: 'people', color: C.neon, bg: '#E0F2FE', label: t('truck_owners', 'Truck Owners'), val: stats.total_customers },
-    { icon: 'bus', color: C.green, bg: '#DCFCE7', label: t('fleet_trucks', 'Fleet Trucks'), val: stats.total_trucks },
-    { icon: 'person', color: C.yellow, bg: '#FEF3C7', label: t('operators', 'Operators'), val: stats.total_operators },
-    { icon: 'water', color: '#7C3AED', bg: '#EDE9FE', label: t('fuel_requests', 'Fuel Requests'), val: stats.total_requests },
+  // Status Badge Colors & Helpers
+  const getStatusBadgeStyle = (status: string) => {
+    switch (status) {
+      case 'PENDING':
+        return { bg: C.yellowDim, text: C.yellow, border: '#FDE68A' };
+      case 'APPROVED':
+      case 'COMPLETED':
+        return { bg: C.greenDim, text: C.green, border: '#86EFAC' };
+      case 'VERIFIED':
+        return { bg: C.primaryDim, text: C.primary, border: '#BAE6FD' };
+      case 'REJECTED':
+      case 'CANCELLED':
+        return { bg: C.redDim, text: C.red, border: '#FECACA' };
+      default:
+        return { bg: C.nightCard2, text: C.textSub, border: C.nightBorder };
+    }
+  };
+
+  // Filtered requests list
+  const filteredRequests = allRequests.filter((r) => {
+    if (requestFilter !== 'ALL' && r.status !== requestFilter) return false;
+    if (!requestSearch.trim()) return true;
+    const q = requestSearch.toLowerCase().trim();
+    return (
+      r.request_number?.toLowerCase().includes(q) ||
+      r.truck_number?.toLowerCase().includes(q) ||
+      r.customer_name?.toLowerCase().includes(q) ||
+      r.customer_mobile?.toLowerCase().includes(q)
+    );
+  });
+
+  // Filtered eligible trucks list
+  const filteredEligibleTrucks = eligibleTrucks.filter((t) => {
+    if (!truckSearch.trim()) return true;
+    const q = truckSearch.toLowerCase().trim();
+    return (
+      t.truck_number?.toLowerCase().includes(q) ||
+      t.customer_name?.toLowerCase().includes(q) ||
+      t.customer_mobile?.toLowerCase().includes(q) ||
+      t.truck_type?.toLowerCase().includes(q)
+    );
+  });
+
+  // Navigation Items for Top/Tab bar
+  const navTabs: { key: TabType; label: string; icon: string; count?: number }[] = [
+    { key: 'dashboard', label: 'Dashboard', icon: 'speedometer-outline' },
+    { key: 'requests', label: 'Requests', icon: 'water-outline', count: stats.total_requests },
+    { key: 'create_req', label: 'Create Fuel Request', icon: 'add-circle-outline' },
+    { key: 'customers', label: 'Truck Owners', icon: 'people-outline', count: stats.total_customers },
+    { key: 'operators', label: 'Operators', icon: 'person-outline', count: stats.total_operators },
+    { key: 'pump', label: 'Station', icon: 'business-outline' },
   ];
 
   return (
     <View style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
 
-      {/* ── Header ── */}
+      {/* ── Top Header ── */}
       <View style={styles.headerContainer}>
         <View style={styles.neonBar} />
-
         <View style={styles.headerRow}>
           <TouchableOpacity
             style={styles.headerLogoWrap}
@@ -386,7 +543,7 @@ export default function PumpAdminScreen() {
             {pump?.logo ? (
               <Image source={{ uri: getLogoUrl(pump.logo) || '' }} style={styles.headerLogoImg} resizeMode="cover" />
             ) : (
-              <Ionicons name={"business" as any} size={20} color={C.primary} />
+              <Ionicons name="business" size={20} color={C.primary} />
             )}
             <View style={styles.headerCameraBadge}>
               <Ionicons name="settings-sharp" size={9} color={C.white} />
@@ -395,10 +552,12 @@ export default function PumpAdminScreen() {
 
           <View style={{ flex: 1 }}>
             <View style={styles.adminPill}>
-              <Ionicons name="shield" size={11} color={C.yellow} style={{ marginRight: 4 }} />
+              <Ionicons name="shield-checkmark" size={11} color={C.yellow} style={{ marginRight: 4 }} />
               <Text style={styles.adminPillText}>{t('pump_admin_console', 'PUMP ADMIN CONSOLE')}</Text>
             </View>
-            <Text style={styles.headerTitle}>{pump?.name || 'Fuel Station'}</Text>
+            <Text style={styles.headerTitle} numberOfLines={1}>
+              {pump?.name || 'Fuel Station'}
+            </Text>
             <View style={styles.pumpCodeRow}>
               <Ionicons name="location-outline" size={13} color={C.primary} style={{ marginRight: 4 }} />
               <Text style={styles.pumpCodeText}>
@@ -421,83 +580,554 @@ export default function PumpAdminScreen() {
             </TouchableOpacity>
           </View>
         </View>
+
+        {/* ── Scrollable Tab Bar ── */}
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.tabScrollContent}
+          style={styles.tabScrollWrap}
+        >
+          {navTabs.map((tab) => {
+            const isActive = activeTab === tab.key;
+            return (
+              <TouchableOpacity
+                key={tab.key}
+                style={[styles.tabButton, isActive && styles.tabButtonActive]}
+                onPress={() => setActiveTab(tab.key)}
+                activeOpacity={0.8}
+              >
+                <Ionicons
+                  name={tab.icon as any}
+                  size={14}
+                  color={isActive ? C.white : C.textMuted}
+                  style={{ marginRight: 5 }}
+                />
+                <Text style={[styles.tabButtonText, isActive && styles.tabButtonTextActive]}>
+                  {tab.label}
+                  {tab.count !== undefined ? ` (${tab.count})` : ''}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
       </View>
 
+      {/* ── Main Content ScrollView with Pull-to-Refresh ── */}
       <ScrollView
         contentContainerStyle={styles.scrollContent}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[C.neon]} tintColor={C.neon} />}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            colors={[C.primary]}
+            tintColor={C.primary}
+          />
+        }
         showsVerticalScrollIndicator={false}
       >
-        {/* ── Stats Grid ── */}
-        <View style={styles.statsGrid}>
-          {statItems.map((s) => (
-            <View key={s.label} style={styles.statCard}>
-              <View style={[styles.statIcon, { backgroundColor: s.bg }]}>
-                <Ionicons name={s.icon as any} size={20} color={s.color} />
-              </View>
-              <Text style={[styles.statVal, { color: s.color }]}>{s.val}</Text>
-              <Text style={styles.statLabel}>{s.label}</Text>
-            </View>
-          ))}
-        </View>
-
-        {/* ── Quick Action Buttons ── */}
-        <View style={styles.actionRow}>
-          <TouchableOpacity
-            style={[styles.actionBtn, { backgroundColor: 'rgba(21,101,192,0.22)', borderColor: C.primary }]}
-            onPress={() => setCreateCustomerModal(true)}
-            activeOpacity={0.85}
-          >
-            <Ionicons name="person-add" size={18} color={C.neon} style={{ marginRight: 6 }} />
-            <Text style={[styles.actionBtnText, { color: C.neon }]}>+ {t('add_truck_owner', 'Add Truck Owner')}</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[styles.actionBtn, { backgroundColor: 'rgba(255,201,40,0.16)', borderColor: 'rgba(255,201,40,0.5)' }]}
-            onPress={() => setCreateOperatorModal(true)}
-            activeOpacity={0.85}
-          >
-            <Ionicons name="key" size={18} color={C.yellow} style={{ marginRight: 6 }} />
-            <Text style={[styles.actionBtnText, { color: C.yellow }]}>+ {t('add_operator', 'Add Operator')}</Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* ── Tabs Bar ── */}
-        <View style={styles.tabBar}>
-          {[
-            { key: 'customers', icon: 'people-outline', label: `${t('truck_owners', 'Truck Owners')} (${customers.length})` },
-            { key: 'operators', icon: 'settings-outline', label: `${t('operators', 'Operators')} (${operators.length})` },
-            { key: 'pump', icon: 'business-outline', label: t('station_info', 'Station Info') },
-          ].map((tab) => (
-            <TouchableOpacity
-              key={tab.key}
-              style={[styles.tabItem, activeTab === tab.key && styles.tabItemActive]}
-              onPress={() => setActiveTab(tab.key as any)}
-              activeOpacity={0.8}
-            >
-              <Ionicons
-                name={tab.icon as any}
-                size={14}
-                color={activeTab === tab.key ? C.night : C.textMuted}
-                style={{ marginRight: 4 }}
-              />
-              <Text style={[styles.tabText, activeTab === tab.key && styles.tabTextActive]}>
-                {tab.label}
+        {/* ──────────────────────────────────────────────────────────── */}
+        {/* TAB 1: OPERATIONAL DASHBOARD */}
+        {/* ──────────────────────────────────────────────────────────── */}
+        {activeTab === 'dashboard' && (
+          <View>
+            {/* Quick Operational Summary Notice */}
+            <View style={styles.roleBanner}>
+              <Ionicons name="flash" size={16} color={C.yellow} style={{ marginRight: 8 }} />
+              <Text style={styles.roleBannerText}>
+                Operational Summary: Single request creation for owner trucks enabled. Real-time sync with station dispensers.
               </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
+            </View>
 
-        {/* ──────────── TAB 1: TRUCK OWNERS ──────────── */}
+            {/* Metric Cards Grid */}
+            <View style={styles.statsGrid}>
+              {/* Total Requests */}
+              <TouchableOpacity
+                style={styles.statCard}
+                onPress={() => {
+                  setRequestFilter('ALL');
+                  setActiveTab('requests');
+                }}
+                activeOpacity={0.85}
+              >
+                <View style={[styles.statIcon, { backgroundColor: C.primaryDim }]}>
+                  <Ionicons name="water" size={20} color={C.primary} />
+                </View>
+                <Text style={[styles.statVal, { color: C.primary }]}>{stats.total_requests}</Text>
+                <Text style={styles.statLabel}>Total Requests</Text>
+              </TouchableOpacity>
+
+              {/* Pending Requests */}
+              <TouchableOpacity
+                style={styles.statCard}
+                onPress={() => {
+                  setRequestFilter('PENDING');
+                  setActiveTab('requests');
+                }}
+                activeOpacity={0.85}
+              >
+                <View style={[styles.statIcon, { backgroundColor: C.yellowDim }]}>
+                  <Ionicons name="time" size={20} color={C.yellow} />
+                </View>
+                <Text style={[styles.statVal, { color: C.yellow }]}>{stats.pending_requests}</Text>
+                <Text style={styles.statLabel}>Pending</Text>
+              </TouchableOpacity>
+
+              {/* Approved Requests */}
+              <TouchableOpacity
+                style={styles.statCard}
+                onPress={() => {
+                  setRequestFilter('APPROVED');
+                  setActiveTab('requests');
+                }}
+                activeOpacity={0.85}
+              >
+                <View style={[styles.statIcon, { backgroundColor: C.greenDim }]}>
+                  <Ionicons name="checkmark-done" size={20} color={C.green} />
+                </View>
+                <Text style={[styles.statVal, { color: C.green }]}>{stats.approved_requests}</Text>
+                <Text style={styles.statLabel}>Approved</Text>
+              </TouchableOpacity>
+
+              {/* Rejected Requests */}
+              <TouchableOpacity
+                style={styles.statCard}
+                onPress={() => {
+                  setRequestFilter('REJECTED');
+                  setActiveTab('requests');
+                }}
+                activeOpacity={0.85}
+              >
+                <View style={[styles.statIcon, { backgroundColor: C.redDim }]}>
+                  <Ionicons name="close-circle" size={20} color={C.red} />
+                </View>
+                <Text style={[styles.statVal, { color: C.red }]}>{stats.rejected_requests}</Text>
+                <Text style={styles.statLabel}>Rejected</Text>
+              </TouchableOpacity>
+
+              {/* Completed Requests */}
+              <TouchableOpacity
+                style={styles.statCard}
+                onPress={() => {
+                  setRequestFilter('COMPLETED');
+                  setActiveTab('requests');
+                }}
+                activeOpacity={0.85}
+              >
+                <View style={[styles.statIcon, { backgroundColor: '#F0FDF4' }]}>
+                  <Ionicons name="checkmark-circle" size={20} color="#15803D" />
+                </View>
+                <Text style={[styles.statVal, { color: '#15803D' }]}>{stats.completed_requests}</Text>
+                <Text style={styles.statLabel}>Completed</Text>
+              </TouchableOpacity>
+
+              {/* Available Trucks Eligible for Request */}
+              <TouchableOpacity
+                style={styles.statCard}
+                onPress={() => setActiveTab('create_req')}
+                activeOpacity={0.85}
+              >
+                <View style={[styles.statIcon, { backgroundColor: C.purpleDim }]}>
+                  <Ionicons name="bus" size={20} color={C.purple} />
+                </View>
+                <Text style={[styles.statVal, { color: C.purple }]}>{stats.eligible_trucks_count}</Text>
+                <Text style={styles.statLabel}>Eligible Trucks</Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Secondary Operational Counts */}
+            <View style={styles.secondaryStatsRow}>
+              <View style={styles.secondaryStatItem}>
+                <Text style={styles.secondaryStatNum}>{stats.total_trucks}</Text>
+                <Text style={styles.secondaryStatLabel}>Total Fleet Trucks</Text>
+              </View>
+              <View style={styles.secondaryStatDivider} />
+              <TouchableOpacity
+                style={styles.secondaryStatItem}
+                onPress={() => setActiveTab('customers')}
+                activeOpacity={0.8}
+              >
+                <Text style={[styles.secondaryStatNum, { color: C.primary }]}>{stats.total_customers}</Text>
+                <Text style={styles.secondaryStatLabel}>Truck Owners</Text>
+              </TouchableOpacity>
+              <View style={styles.secondaryStatDivider} />
+              <TouchableOpacity
+                style={styles.secondaryStatItem}
+                onPress={() => setActiveTab('operators')}
+                activeOpacity={0.8}
+              >
+                <Text style={[styles.secondaryStatNum, { color: C.yellow }]}>{stats.total_operators}</Text>
+                <Text style={styles.secondaryStatLabel}>Operators</Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Quick Action Buttons */}
+            <View style={styles.actionRow}>
+              <TouchableOpacity
+                style={[styles.actionBtn, { backgroundColor: C.primary, borderColor: C.primary }]}
+                onPress={() => setActiveTab('create_req')}
+                activeOpacity={0.85}
+              >
+                <Ionicons name="add-circle" size={17} color={C.white} style={{ marginRight: 6 }} />
+                <Text style={[styles.actionBtnText, { color: C.white }]}>+ Create Request</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.actionBtn, { backgroundColor: '#F0F9FF', borderColor: '#BAE6FD' }]}
+                onPress={() => setCreateCustomerModal(true)}
+                activeOpacity={0.85}
+              >
+                <Ionicons name="person-add" size={17} color={C.primary} style={{ marginRight: 6 }} />
+                <Text style={[styles.actionBtnText, { color: C.primary }]}>+ Add Owner</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.actionBtn, { backgroundColor: C.yellowDim, borderColor: '#FDE68A' }]}
+                onPress={() => setCreateOperatorModal(true)}
+                activeOpacity={0.85}
+              >
+                <Ionicons name="key" size={17} color={C.yellow} style={{ marginRight: 6 }} />
+                <Text style={[styles.actionBtnText, { color: C.yellow }]}>+ Operator</Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Recent Requests Section */}
+            <View style={styles.sectionHeaderRow}>
+              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                <Ionicons name="time-outline" size={18} color={C.text} style={{ marginRight: 6 }} />
+                <Text style={styles.sectionTitle}>Recent Fuel Requests</Text>
+              </View>
+              <TouchableOpacity
+                onPress={() => {
+                  setRequestFilter('ALL');
+                  setActiveTab('requests');
+                }}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.viewAllText}>View All ({stats.total_requests}) →</Text>
+              </TouchableOpacity>
+            </View>
+
+            {recentRequests.length === 0 ? (
+              <View style={styles.emptyCard}>
+                <Ionicons name="water-outline" size={40} color={C.textMuted} />
+                <Text style={styles.emptyTitle}>No Recent Fuel Requests</Text>
+                <Text style={styles.emptySubtitle}>
+                  Requests created by Truck Owners or Pump Admin will appear here in real-time.
+                </Text>
+              </View>
+            ) : (
+              recentRequests.map((req) => {
+                const badge = getStatusBadgeStyle(req.status);
+                return (
+                  <View key={req.id} style={styles.reqCard}>
+                    <View style={styles.reqCardHeader}>
+                      <View>
+                        <Text style={styles.reqNumber}>{req.request_number}</Text>
+                        <View style={styles.indianPlateSmall}>
+                          <Text style={styles.indianPlateTextSmall}>{req.truck_number}</Text>
+                        </View>
+                      </View>
+                      <View style={[styles.statusBadge, { backgroundColor: badge.bg, borderColor: badge.border }]}>
+                        <Text style={[styles.statusBadgeText, { color: badge.text }]}>{req.status}</Text>
+                      </View>
+                    </View>
+
+                    <View style={styles.reqDetailsGrid}>
+                      <View style={styles.reqDetailItem}>
+                        <Text style={styles.reqDetailLabel}>TRUCK OWNER</Text>
+                        <Text style={styles.reqDetailVal} numberOfLines={1}>
+                          {req.customer_name || 'Fleet Owner'}
+                        </Text>
+                      </View>
+                      <View style={styles.reqDetailItem}>
+                        <Text style={styles.reqDetailLabel}>FUEL & QUANTITY</Text>
+                        <Text style={[styles.reqDetailVal, { color: C.primary }]}>
+                          {req.requested_liters}L {req.fuel_type}
+                        </Text>
+                      </View>
+                      <View style={styles.reqDetailItem}>
+                        <Text style={styles.reqDetailLabel}>CREATED BY</Text>
+                        <Text style={styles.reqDetailVal} numberOfLines={1}>
+                          {req.created_by_name || 'Owner'}
+                        </Text>
+                      </View>
+                    </View>
+                  </View>
+                );
+              })
+            )}
+          </View>
+        )}
+
+        {/* ──────────────────────────────────────────────────────────── */}
+        {/* TAB 2: ALL FUEL REQUESTS LIST */}
+        {/* ──────────────────────────────────────────────────────────── */}
+        {activeTab === 'requests' && (
+          <View>
+            {/* Status Filter Chips */}
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterScroll}>
+              {['ALL', 'PENDING', 'APPROVED', 'VERIFIED', 'COMPLETED', 'REJECTED', 'CANCELLED'].map((st) => {
+                const isSelected = requestFilter === st;
+                return (
+                  <TouchableOpacity
+                    key={st}
+                    style={[styles.filterChip, isSelected && styles.filterChipActive]}
+                    onPress={() => setRequestFilter(st)}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={[styles.filterChipText, isSelected && styles.filterChipTextActive]}>
+                      {st}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+
+            {/* Search Input */}
+            <View style={styles.searchBar}>
+              <Ionicons name="search" size={17} color={C.textMuted} style={{ marginRight: 8 }} />
+              <TextInput
+                style={styles.searchInput}
+                placeholder="Search by request #, plate, or owner..."
+                placeholderTextColor={C.textMuted}
+                value={requestSearch}
+                onChangeText={setRequestSearch}
+                autoCapitalize="none"
+              />
+              {requestSearch.length > 0 && (
+                <TouchableOpacity onPress={() => setRequestSearch('')}>
+                  <Ionicons name="close-circle" size={18} color={C.textMuted} />
+                </TouchableOpacity>
+              )}
+            </View>
+
+            {loading && !refreshing ? (
+              <View style={styles.centerBox}>
+                <ActivityIndicator size="large" color={C.primary} />
+              </View>
+            ) : filteredRequests.length === 0 ? (
+              <View style={styles.emptyCard}>
+                <Ionicons name="file-tray-outline" size={44} color={C.textMuted} />
+                <Text style={styles.emptyTitle}>No Requests Found</Text>
+                <Text style={styles.emptySubtitle}>
+                  {requestFilter !== 'ALL'
+                    ? `No fuel requests matching status "${requestFilter}".`
+                    : 'No fuel requests registered for this pump station yet.'}
+                </Text>
+              </View>
+            ) : (
+              filteredRequests.map((r) => {
+                const badge = getStatusBadgeStyle(r.status);
+                return (
+                  <View key={r.id} style={styles.reqCard}>
+                    <View style={styles.reqCardHeader}>
+                      <View>
+                        <Text style={styles.reqNumber}>{r.request_number}</Text>
+                        <Text style={styles.reqDate}>
+                          {r.created_at ? new Date(r.created_at).toLocaleString() : 'Recent'}
+                        </Text>
+                      </View>
+                      <View style={[styles.statusBadge, { backgroundColor: badge.bg, borderColor: badge.border }]}>
+                        <Text style={[styles.statusBadgeText, { color: badge.text }]}>{r.status}</Text>
+                      </View>
+                    </View>
+
+                    {/* Truck Plate Display */}
+                    <View style={styles.indianPlateWrap}>
+                      <View style={styles.indStripe}>
+                        <Text style={styles.indText}>IND</Text>
+                      </View>
+                      <Text style={styles.indPlateNumber}>{r.truck_number}</Text>
+                    </View>
+
+                    <View style={styles.reqDetailsGrid}>
+                      <View style={styles.reqDetailItem}>
+                        <Text style={styles.reqDetailLabel}>TRUCK OWNER</Text>
+                        <Text style={styles.reqDetailVal}>{r.customer_name || 'Fleet Owner'}</Text>
+                        {r.customer_mobile ? (
+                          <Text style={styles.reqDetailSub}>{r.customer_mobile}</Text>
+                        ) : null}
+                      </View>
+
+                      <View style={styles.reqDetailItem}>
+                        <Text style={styles.reqDetailLabel}>REQUESTED / APPROVED</Text>
+                        <Text style={[styles.reqDetailVal, { color: C.primary }]}>
+                          {r.approved_liters ? `${r.approved_liters}L (Dispensed)` : `${r.requested_liters}L`}
+                        </Text>
+                        <Text style={styles.reqDetailSub}>{r.fuel_type}</Text>
+                      </View>
+
+                      <View style={styles.reqDetailItem}>
+                        <Text style={styles.reqDetailLabel}>CREATED BY</Text>
+                        <Text style={styles.reqDetailVal}>
+                          {r.created_by_name || 'Truck Owner'}
+                        </Text>
+                        <Text style={styles.reqDetailSub}>{r.created_by_role || 'User'}</Text>
+                      </View>
+                    </View>
+
+                    {r.remarks ? (
+                      <View style={styles.remarksBox}>
+                        <Ionicons name="chatbubble-ellipses-outline" size={13} color={C.textMuted} style={{ marginRight: 5 }} />
+                        <Text style={styles.remarksText}>Note: {r.remarks}</Text>
+                      </View>
+                    ) : null}
+                  </View>
+                );
+              })
+            )}
+          </View>
+        )}
+
+        {/* ──────────────────────────────────────────────────────────── */}
+        {/* TAB 3: CREATE REQUEST USING OWNER-ADDED TRUCKS */}
+        {/* ──────────────────────────────────────────────────────────── */}
+        {activeTab === 'create_req' && (
+          <View>
+            {/* Explicit Notice: Single Request Only */}
+            <View style={styles.infoCallout}>
+              <Ionicons name="information-circle" size={20} color={C.primary} style={{ marginRight: 8 }} />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.infoCalloutTitle}>Single Fuel Request Creation</Text>
+                <Text style={styles.infoCalloutText}>
+                  Select an eligible truck added by a Truck Owner to generate a fuel request for your station. Bulk requests are restricted exclusively to Truck Owners.
+                </Text>
+              </View>
+            </View>
+
+            {/* Search Input for Trucks */}
+            <View style={styles.searchBar}>
+              <Ionicons name="search" size={17} color={C.textMuted} style={{ marginRight: 8 }} />
+              <TextInput
+                style={styles.searchInput}
+                placeholder="Search truck number, owner name, or mobile..."
+                placeholderTextColor={C.textMuted}
+                value={truckSearch}
+                onChangeText={setTruckSearch}
+                autoCapitalize="none"
+              />
+              {truckSearch.length > 0 && (
+                <TouchableOpacity onPress={() => setTruckSearch('')}>
+                  <Ionicons name="close-circle" size={18} color={C.textMuted} />
+                </TouchableOpacity>
+              )}
+            </View>
+
+            {loading && !refreshing ? (
+              <View style={styles.centerBox}>
+                <ActivityIndicator size="large" color={C.primary} />
+              </View>
+            ) : filteredEligibleTrucks.length === 0 ? (
+              <View style={styles.emptyCard}>
+                <Ionicons name="bus-outline" size={44} color={C.textMuted} />
+                <Text style={styles.emptyTitle}>No Trucks Available</Text>
+                <Text style={styles.emptySubtitle}>
+                  No trucks registered by Truck Owners match your search query.
+                </Text>
+              </View>
+            ) : (
+              filteredEligibleTrucks.map((truck) => {
+                const isEligible = truck.is_eligible_for_request;
+                return (
+                  <View key={truck.id} style={styles.eligibleTruckCard}>
+                    <View style={styles.eligibleTruckTop}>
+                      <View style={styles.indianPlateWrap}>
+                        <View style={styles.indStripe}>
+                          <Text style={styles.indText}>IND</Text>
+                        </View>
+                        <Text style={styles.indPlateNumber}>{truck.truck_number}</Text>
+                      </View>
+
+                      {isEligible ? (
+                        <View style={styles.eligiblePill}>
+                          <Ionicons name="checkmark-circle" size={12} color={C.green} style={{ marginRight: 4 }} />
+                          <Text style={styles.eligiblePillText}>Ready for Request</Text>
+                        </View>
+                      ) : (
+                        <View style={styles.activeReqPill}>
+                          <Ionicons name="time" size={12} color={C.yellow} style={{ marginRight: 4 }} />
+                          <Text style={styles.activeReqPillText}>Active Request Exists</Text>
+                        </View>
+                      )}
+                    </View>
+
+                    <View style={styles.truckInfoGrid}>
+                      <View style={styles.truckInfoItem}>
+                        <Text style={styles.truckInfoLabel}>OWNER</Text>
+                        <Text style={styles.truckInfoVal}>{truck.customer_name || 'Truck Owner'}</Text>
+                        <Text style={styles.truckInfoSub}>{truck.customer_mobile || '—'}</Text>
+                      </View>
+                      <View style={styles.truckInfoItem}>
+                        <Text style={styles.truckInfoLabel}>TYPE / MODEL</Text>
+                        <Text style={styles.truckInfoVal}>{truck.truck_type || 'Commercial'}</Text>
+                        <Text style={styles.truckInfoSub}>{truck.fuel_type || 'DIESEL'}</Text>
+                      </View>
+                      <View style={styles.truckInfoItem}>
+                        <Text style={styles.truckInfoLabel}>TANK CAPACITY</Text>
+                        <Text style={[styles.truckInfoVal, { color: C.primary }]}>
+                          {truck.capacity ? `${truck.capacity} L` : 'N/A'}
+                        </Text>
+                        <Text style={styles.truckInfoSub}>Max Fill</Text>
+                      </View>
+                    </View>
+
+                    {/* Action Button */}
+                    <TouchableOpacity
+                      style={[
+                        styles.createReqBtn,
+                        !isEligible && styles.createReqBtnDisabled,
+                      ]}
+                      onPress={() => openSingleRequestModal(truck)}
+                      disabled={!isEligible}
+                      activeOpacity={0.85}
+                    >
+                      <Ionicons
+                        name={isEligible ? "add-circle" : "lock-closed"}
+                        size={16}
+                        color={isEligible ? C.white : C.textMuted}
+                        style={{ marginRight: 6 }}
+                      />
+                      <Text
+                        style={[
+                          styles.createReqBtnText,
+                          !isEligible && styles.createReqBtnTextDisabled,
+                        ]}
+                      >
+                        {isEligible ? 'Create Fuel Request' : 'Active Request in Progress'}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                );
+              })
+            )}
+          </View>
+        )}
+
+        {/* ──────────────────────────────────────────────────────────── */}
+        {/* TAB 4: TRUCK OWNERS MANAGEMENT */}
+        {/* ──────────────────────────────────────────────────────────── */}
         {activeTab === 'customers' && (
           <View>
+            <View style={styles.tabActionHeader}>
+              <Text style={styles.sectionTitle}>Registered Truck Owners ({customers.length})</Text>
+              <TouchableOpacity
+                style={styles.smallActionBtn}
+                onPress={() => setCreateCustomerModal(true)}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="person-add" size={14} color={C.white} style={{ marginRight: 4 }} />
+                <Text style={styles.smallActionBtnText}>+ Onboard Owner</Text>
+              </TouchableOpacity>
+            </View>
+
             {loading && !refreshing ? (
-              <View style={styles.centerBox}><ActivityIndicator size="large" color={C.neon} /></View>
+              <View style={styles.centerBox}><ActivityIndicator size="large" color={C.primary} /></View>
             ) : customers.length === 0 ? (
               <View style={styles.emptyCard}>
                 <Ionicons name="people-outline" size={44} color={C.textMuted} />
                 <Text style={styles.emptyTitle}>No Truck Owners Registered</Text>
-                <Text style={styles.emptySubtitle}>Use the "+ Add Truck Owner" button above to onboard fleet owners.</Text>
+                <Text style={styles.emptySubtitle}>Use the "+ Onboard Owner" button above to register fleet owners.</Text>
               </View>
             ) : (
               customers.map((cust) => (
@@ -517,11 +1147,12 @@ export default function PumpAdminScreen() {
                       </View>
                     </View>
                     <View style={styles.truckBadge}>
-                      <Ionicons name="bus-outline" size={12} color={C.neon} style={{ marginRight: 4 }} />
-                      <Text style={styles.truckBadgeText}>{cust.trucks_count} Trucks</Text>
+                      <Ionicons name="bus-outline" size={12} color={C.primary} style={{ marginRight: 4 }} />
+                      <Text style={styles.truckBadgeText}>{cust.trucks_count || 0} Trucks</Text>
                     </View>
                   </View>
-                  <View style={[styles.opCredContainer, { marginHorizontal: 0, marginTop: 10, marginBottom: 8 }]}>
+
+                  <View style={styles.opCredContainer}>
                     <View style={styles.opCredRow}>
                       <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                         <Ionicons name="key-outline" size={13} color={C.yellow} style={{ marginRight: 6 }} />
@@ -533,8 +1164,8 @@ export default function PumpAdminScreen() {
                             <Text style={[styles.opCredVal, { color: C.yellow, marginRight: 6, letterSpacing: visiblePasswords[cust.id] ? 0.5 : 2 }]}>
                               {visiblePasswords[cust.id] ? cust.password : '••••••••'}
                             </Text>
-                            <View style={{ backgroundColor: 'rgba(217, 119, 6, 0.15)', paddingHorizontal: 5, paddingVertical: 2, borderRadius: 4, marginRight: 8 }}>
-                              <Text style={{ fontSize: 9, color: C.yellow, fontWeight: '800' }}>TEMP</Text>
+                            <View style={styles.tempBadge}>
+                              <Text style={styles.tempBadgeText}>TEMP</Text>
                             </View>
                             <TouchableOpacity onPress={() => togglePasswordVisibility(cust.id)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
                               <Ionicons
@@ -555,11 +1186,12 @@ export default function PumpAdminScreen() {
                       </View>
                     </View>
                   </View>
+
                   <View style={styles.custFooter}>
                     <Text style={styles.custId}>ID: {cust.employee_id || `TOWN${cust.id}`}</Text>
                     <View style={styles.activePill}>
                       <View style={styles.activeDot} />
-                      <Text style={styles.activePillText}>Authorized</Text>
+                      <Text style={styles.activePillText}>Authorized Truck Owner</Text>
                     </View>
                   </View>
                 </View>
@@ -568,11 +1200,25 @@ export default function PumpAdminScreen() {
           </View>
         )}
 
-        {/* ──────────── TAB 2: PUMP OPERATORS ──────────── */}
+        {/* ──────────────────────────────────────────────────────────── */}
+        {/* TAB 5: PUMP OPERATORS MANAGEMENT */}
+        {/* ──────────────────────────────────────────────────────────── */}
         {activeTab === 'operators' && (
           <View>
+            <View style={styles.tabActionHeader}>
+              <Text style={styles.sectionTitle}>Pump Operators ({operators.length})</Text>
+              <TouchableOpacity
+                style={[styles.smallActionBtn, { backgroundColor: C.yellow }]}
+                onPress={() => setCreateOperatorModal(true)}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="key" size={14} color={C.white} style={{ marginRight: 4 }} />
+                <Text style={styles.smallActionBtnText}>+ Add Operator</Text>
+              </TouchableOpacity>
+            </View>
+
             {loading && !refreshing ? (
-              <View style={styles.centerBox}><ActivityIndicator size="large" color={C.neon} /></View>
+              <View style={styles.centerBox}><ActivityIndicator size="large" color={C.primary} /></View>
             ) : operators.length === 0 ? (
               <View style={styles.emptyCard}>
                 <Ionicons name="person-circle-outline" size={44} color={C.textMuted} />
@@ -583,15 +1229,14 @@ export default function PumpAdminScreen() {
               operators.map((op) => (
                 <View key={op.id} style={styles.custCard}>
                   <View style={styles.custHeader}>
-                    <View style={[styles.custAvatar, { borderColor: op.is_active !== false ? C.yellow : C.red, backgroundColor: op.is_active !== false ? 'rgba(255,201,40,0.12)' : 'rgba(220,38,38,0.1)' }]}>
+                    <View style={[styles.custAvatar, { borderColor: op.is_active !== false ? C.yellow : C.red, backgroundColor: op.is_active !== false ? 'rgba(217,119,6,0.1)' : 'rgba(220,38,38,0.1)' }]}>
                       <Text style={[styles.custAvatarText, { color: op.is_active !== false ? C.yellow : C.red }]}>{(op.first_name || 'O').charAt(0).toUpperCase()}</Text>
                     </View>
                     <View style={{ flex: 1 }}>
                       <Text style={styles.custName}>{op.full_name || op.first_name}</Text>
                       <Text style={styles.custId}>ID: {op.employee_id || `OPER${op.id}`}</Text>
                     </View>
-                    
-                    {/* Status Pill Badge */}
+
                     <View style={[styles.statusPill, op.is_active !== false ? styles.activePillBg : styles.inactivePillBg]}>
                       <View style={[styles.statusDot, op.is_active !== false ? styles.activeDotBg : styles.inactiveDotBg]} />
                       <Text style={[styles.statusPillText, op.is_active !== false ? styles.activeStatusPillText : styles.inactiveStatusPillText]}>
@@ -600,11 +1245,10 @@ export default function PumpAdminScreen() {
                     </View>
                   </View>
 
-                  {/* ── Operator Credentials Box ── */}
                   <View style={styles.opCredContainer}>
                     <View style={styles.opCredRow}>
                       <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                        <Ionicons name="call-outline" size={14} color={C.neon} style={{ marginRight: 6 }} />
+                        <Ionicons name="call-outline" size={14} color={C.primary} style={{ marginRight: 6 }} />
                         <Text style={styles.opCredLabel}>Mobile No:</Text>
                       </View>
                       <Text style={styles.opCredVal}>{op.mobile_number || '—'}</Text>
@@ -621,8 +1265,8 @@ export default function PumpAdminScreen() {
                             <Text style={[styles.opCredVal, { color: C.yellow, marginRight: 6, letterSpacing: visiblePasswords[op.id] ? 0.5 : 2 }]}>
                               {visiblePasswords[op.id] ? op.password : '••••••••'}
                             </Text>
-                            <View style={{ backgroundColor: 'rgba(217, 119, 6, 0.15)', paddingHorizontal: 5, paddingVertical: 2, borderRadius: 4, marginRight: 8 }}>
-                              <Text style={{ fontSize: 9, color: C.yellow, fontWeight: '800' }}>TEMP</Text>
+                            <View style={styles.tempBadge}>
+                              <Text style={styles.tempBadgeText}>TEMP</Text>
                             </View>
                             <TouchableOpacity onPress={() => togglePasswordVisibility(op.id)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
                               <Ionicons
@@ -644,7 +1288,6 @@ export default function PumpAdminScreen() {
                     </View>
                   </View>
 
-                  {/* ── Action Buttons: Activate / Deactivate & Delete ── */}
                   <View style={styles.cardActionRow}>
                     <TouchableOpacity
                       style={[
@@ -695,7 +1338,9 @@ export default function PumpAdminScreen() {
           </View>
         )}
 
-        {/* ──────────── TAB 3: PUMP STATION INFO ──────────── */}
+        {/* ──────────────────────────────────────────────────────────── */}
+        {/* TAB 6: PUMP STATION PROFILE & CONFIGURATION */}
+        {/* ──────────────────────────────────────────────────────────── */}
         {activeTab === 'pump' && (
           <View style={styles.pumpInfoCard}>
             <View style={styles.pumpInfoHeader}>
@@ -703,7 +1348,7 @@ export default function PumpAdminScreen() {
               <Text style={styles.pumpInfoTitle}>Station Profile & Logo</Text>
             </View>
 
-            {/* Dedicated Profile & Configuration Banner */}
+            {/* Profile Page Navigation Banner */}
             <TouchableOpacity
               style={styles.openProfileBanner}
               onPress={() => router.push('/pump-admin-profile')}
@@ -712,14 +1357,14 @@ export default function PumpAdminScreen() {
               <View style={styles.openProfileBannerLeft}>
                 <Ionicons name="create-outline" size={22} color={C.primary} />
                 <View style={{ marginLeft: 10 }}>
-                  <Text style={styles.openProfileBannerTitle}>Open Full Profile Page</Text>
-                  <Text style={styles.openProfileBannerSubtitle}>Edit station name, address, contact & upload logo</Text>
+                  <Text style={styles.openProfileBannerTitle}>Open Station Profile Settings</Text>
+                  <Text style={styles.openProfileBannerSubtitle}>Update name, address, contact line & credentials</Text>
                 </View>
               </View>
               <Ionicons name="chevron-forward" size={18} color={C.primary} />
             </TouchableOpacity>
 
-            {/* Station Logo Management Box */}
+            {/* Logo Management Box */}
             <View style={styles.logoManagementCard}>
               <View style={styles.logoPreviewWrap}>
                 {pump?.logo ? (
@@ -781,7 +1426,7 @@ export default function PumpAdminScreen() {
             ))}
 
             <View style={styles.adminInfoBlock}>
-              <Ionicons name="shield-checkmark" size={22} color={C.neon} style={{ marginRight: 10 }} />
+              <Ionicons name="shield-checkmark" size={22} color={C.primary} style={{ marginRight: 10 }} />
               <View>
                 <Text style={styles.adminInfoLabel}>Station Admin</Text>
                 <Text style={styles.adminInfoName}>{adminUser?.name || adminUser?.first_name || 'Admin'}</Text>
@@ -792,7 +1437,89 @@ export default function PumpAdminScreen() {
         )}
       </ScrollView>
 
-      {/* ── Modal 1: Create Truck Owner ── */}
+      {/* ── Modal: Single Fuel Request Creation ── */}
+      <Modal visible={createReqModal} transparent animationType="slide" onRequestClose={() => setCreateReqModal(false)}>
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.modalOverlay}>
+          <View style={styles.modalSheet}>
+            <View style={styles.modalHandle} />
+            <Text style={styles.modalTitle}>Create Fuel Request</Text>
+            <Text style={styles.modalSubtitle}>Dispatch request to your station dispenser queue</Text>
+
+            {selectedTruck && (
+              <View style={styles.selectedTruckReviewBox}>
+                <View style={styles.indianPlateSmall}>
+                  <Text style={styles.indianPlateTextSmall}>{selectedTruck.truck_number}</Text>
+                </View>
+                <View style={{ flex: 1, marginLeft: 12 }}>
+                  <Text style={styles.reviewTruckOwner}>Owner: {selectedTruck.customer_name || 'Fleet Owner'}</Text>
+                  <Text style={styles.reviewTruckMeta}>
+                    {selectedTruck.fuel_type || 'DIESEL'} · Tank Capacity: {selectedTruck.capacity || '—'}L
+                  </Text>
+                </View>
+              </View>
+            )}
+
+            <View style={styles.modalInputGroup}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                <Text style={styles.inputLabel}>REQUESTED QUANTITY (LITERS) *</Text>
+                {selectedTruck?.capacity ? (
+                  <Text style={styles.capacityHint}>Max Capacity: {selectedTruck.capacity}L</Text>
+                ) : null}
+              </View>
+              <TextInput
+                style={styles.textInput}
+                placeholder="e.g. 50"
+                placeholderTextColor={C.textMuted}
+                value={reqLiters}
+                onChangeText={setReqLiters}
+                keyboardType="numeric"
+              />
+            </View>
+
+            <View style={styles.modalInputGroup}>
+              <Text style={styles.inputLabel}>REMARKS / DISPENSER NOTES (OPTIONAL)</Text>
+              <TextInput
+                style={styles.textInput}
+                placeholder="e.g. Priority refueling for highway route"
+                placeholderTextColor={C.textMuted}
+                value={reqRemarks}
+                onChangeText={setReqRemarks}
+              />
+            </View>
+
+            <View style={styles.singleNoticeBox}>
+              <Ionicons name="information-circle-outline" size={15} color={C.primary} style={{ marginRight: 6 }} />
+              <Text style={styles.singleNoticeText}>
+                Pump Admins can only issue single requests. Bulk requests are restricted to Truck Owners.
+              </Text>
+            </View>
+
+            <View style={styles.modalBtnRow}>
+              <TouchableOpacity
+                style={styles.modalCancelBtn}
+                onPress={() => setCreateReqModal(false)}
+                disabled={submittingReq}
+              >
+                <Text style={styles.modalCancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.modalConfirmBtn}
+                onPress={handleSubmitSingleRequest}
+                disabled={submittingReq}
+                activeOpacity={0.85}
+              >
+                {submittingReq ? (
+                  <ActivityIndicator color={C.white} />
+                ) : (
+                  <Text style={styles.modalConfirmText}>Submit Request</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
+
+      {/* ── Modal: Create Truck Owner ── */}
       <Modal visible={createCustomerModal} transparent animationType="slide" onRequestClose={() => setCreateCustomerModal(false)}>
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.modalOverlay}>
           <View style={styles.modalSheet}>
@@ -875,7 +1602,7 @@ export default function PumpAdminScreen() {
         </KeyboardAvoidingView>
       </Modal>
 
-      {/* ── Modal 2: Create Pump Operator ── */}
+      {/* ── Modal: Create Pump Operator ── */}
       <Modal visible={createOperatorModal} transparent animationType="slide" onRequestClose={() => setCreateOperatorModal(false)}>
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.modalOverlay}>
           <View style={styles.modalSheet}>
@@ -929,7 +1656,7 @@ export default function PumpAdminScreen() {
         </KeyboardAvoidingView>
       </Modal>
 
-      {/* ── Modal 3: Credentials Success Display ── */}
+      {/* ── Modal: Credentials Success Display ── */}
       <Modal visible={credModal.visible} transparent animationType="fade">
         <View style={styles.modalBackdrop}>
           <View style={styles.credCard}>
@@ -965,127 +1692,28 @@ export default function PumpAdminScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: C.night },
   headerContainer: { backgroundColor: C.white, borderBottomWidth: 1, borderBottomColor: C.nightBorder },
-  neonBar: { height: 3, backgroundColor: C.neon },
-  headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', paddingHorizontal: 20, paddingTop: 16, paddingBottom: 18 },
-  adminPill: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FEF3C7', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3, borderWidth: 1, borderColor: '#FDE68A', marginBottom: 6, alignSelf: 'flex-start' },
-  adminPillText: { fontSize: 10, fontWeight: '800', color: C.yellow, letterSpacing: 1.5 },
-  headerTitle: { fontSize: 22, fontWeight: '900', color: C.text, marginBottom: 4 },
-  pumpCodeRow: { flexDirection: 'row', alignItems: 'center' },
-  pumpCodeText: { fontSize: 12, color: C.primary, fontWeight: '600' },
-  logoutBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#FEE2E2', borderWidth: 1, borderColor: '#FECACA', justifyContent: 'center', alignItems: 'center' },
-  scrollContent: { padding: 16, paddingBottom: 50 },
-  statsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 14 },
-  statCard: { flex: 1, minWidth: '45%', backgroundColor: C.white, borderRadius: 14, padding: 14, borderWidth: 1, borderColor: C.nightBorder, shadowColor: '#64748B', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.06, shadowRadius: 6, elevation: 2 },
-  statIcon: { width: 36, height: 36, borderRadius: 18, justifyContent: 'center', alignItems: 'center', marginBottom: 8 },
-  statVal: { fontSize: 24, fontWeight: '900', color: C.text, marginBottom: 2 },
-  statLabel: { fontSize: 11, color: C.textSub, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5 },
-  actionRow: { flexDirection: 'row', gap: 10, marginBottom: 16 },
-  actionBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 12, borderRadius: 12, borderWidth: 1 },
-  actionBtnText: { fontSize: 13, fontWeight: '800', letterSpacing: 0.5 },
-  tabBar: { flexDirection: 'row', backgroundColor: '#F1F5F9', borderRadius: 12, padding: 4, marginBottom: 16, borderWidth: 1, borderColor: C.nightBorder },
-  tabItem: { flex: 1, flexDirection: 'row', paddingVertical: 10, alignItems: 'center', justifyContent: 'center', borderRadius: 9 },
-  tabItemActive: { backgroundColor: C.primary },
-  tabText: { fontSize: 11, fontWeight: '700', color: C.textMuted },
-  tabTextActive: { color: C.white },
-  centerBox: { padding: 40, alignItems: 'center' },
-  emptyCard: { backgroundColor: C.white, borderRadius: 16, padding: 36, alignItems: 'center', borderWidth: 1, borderColor: C.nightBorder },
-  emptyTitle: { fontSize: 16, fontWeight: '800', color: C.text, marginTop: 12, marginBottom: 4 },
-  emptySubtitle: { fontSize: 12, color: C.textSub, textAlign: 'center', lineHeight: 18 },
-  custCard: { backgroundColor: C.white, borderRadius: 14, padding: 14, marginBottom: 10, borderWidth: 1, borderColor: C.nightBorder, shadowColor: '#64748B', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 4, elevation: 1 },
-  custHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 10 },
-  custAvatar: { width: 42, height: 42, borderRadius: 21, backgroundColor: '#E0F2FE', borderWidth: 1.5, borderColor: '#38BDF8', justifyContent: 'center', alignItems: 'center', marginRight: 12 },
-  custAvatarText: { fontSize: 17, fontWeight: '800', color: C.primary },
-  custName: { fontSize: 15, fontWeight: '800', color: C.text },
-  custPhoneRow: { flexDirection: 'row', alignItems: 'center', marginTop: 3 },
-  custUsername: { fontSize: 11, color: C.primary, fontWeight: '700' },
-  custDivider: { fontSize: 10, color: C.textMuted, marginHorizontal: 6 },
-  custPhone: { fontSize: 11, color: C.textSub },
-  truckBadge: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#E0F2FE', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8, borderWidth: 1, borderColor: '#BAE6FD' },
-  truckBadgeText: { fontSize: 11, fontWeight: '800', color: C.primary },
-  custFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingTop: 10, borderTopWidth: 1, borderTopColor: C.nightBorder },
-  custId: { fontSize: 11, color: C.textMuted, fontWeight: '600' },
-  activePill: { flexDirection: 'row', alignItems: 'center' },
-  activeDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: C.green, marginRight: 5 },
-  activePillText: { fontSize: 11, fontWeight: '700', color: C.green },
-  statusTextBadge: { fontSize: 11, fontWeight: '700' },
-  opCredContainer: {
-    backgroundColor: '#F8FAFC',
-    borderRadius: 10,
-    padding: 12,
-    marginBottom: 10,
-    borderWidth: 1,
-    borderColor: C.nightBorder,
-  },
-  opCredRow: {
+  neonBar: { height: 3, backgroundColor: C.primary },
+  headerRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
+    alignItems: 'flex-start',
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    paddingBottom: 10,
   },
-  opCredLabel: {
-    fontSize: 12,
-    color: C.textSub,
-    fontWeight: '700',
-  },
-  opCredVal: {
-    fontSize: 13,
-    color: C.text,
-    fontWeight: '800',
-  },
-  pumpInfoCard: { backgroundColor: C.white, borderRadius: 16, padding: 18, borderWidth: 1, borderColor: C.nightBorder },
-  pumpInfoHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 16, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: C.nightBorder },
-  pumpInfoTitle: { fontSize: 16, fontWeight: '800', color: C.text },
-  infoRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#F1F5F9' },
-  infoKey: { fontSize: 13, color: C.textSub },
-  infoVal: { fontSize: 13, color: C.text, fontWeight: '600' },
-  adminInfoBlock: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#F8FAFC', borderRadius: 12, padding: 14, marginTop: 16, borderWidth: 1, borderColor: C.nightBorder },
-  adminInfoLabel: { fontSize: 10, color: C.textSub, fontWeight: '700', textTransform: 'uppercase' },
-  adminInfoName: { fontSize: 14, fontWeight: '800', color: C.text, marginTop: 1 },
-  adminInfoMobile: { fontSize: 12, color: C.primary, marginTop: 1, fontWeight: '600' },
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(15,23,42,0.5)', justifyContent: 'flex-end' },
-  modalSheet: { backgroundColor: C.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 22, borderWidth: 1, borderColor: C.nightBorder },
-  modalHandle: { width: 40, height: 4, borderRadius: 2, backgroundColor: '#CBD5E1', alignSelf: 'center', marginBottom: 14 },
-  modalTitle: { fontSize: 19, fontWeight: '800', color: C.text, textAlign: 'center' },
-  modalSubtitle: { fontSize: 12, color: C.textSub, textAlign: 'center', marginTop: 3, marginBottom: 16 },
-  modalInputGroup: { marginBottom: 12 },
-  inputLabel: { fontSize: 10, fontWeight: '800', color: C.textSub, letterSpacing: 0.8, marginBottom: 5 },
-  charCount: { fontSize: 11, fontWeight: '800' },
-  textInput: { backgroundColor: '#F8FAFC', borderRadius: 10, paddingHorizontal: 12, height: 46, color: C.text, fontSize: 14, borderWidth: 1, borderColor: C.nightBorder },
-  autoGenNote: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FEF3C7', padding: 10, borderRadius: 8, borderWidth: 1, borderColor: '#FDE68A', marginBottom: 16 },
-  autoGenNoteText: { fontSize: 11, color: C.yellow, flex: 1, lineHeight: 16, fontWeight: '600' },
-  modalBtnRow: { flexDirection: 'row', gap: 10, marginTop: 8 },
-  modalCancelBtn: { flex: 1, paddingVertical: 14, borderRadius: 10, backgroundColor: '#F1F5F9', alignItems: 'center', borderWidth: 1, borderColor: C.nightBorder },
-  modalCancelText: { color: C.textSub, fontWeight: '700', fontSize: 14 },
-  modalConfirmBtn: { flex: 1.5, paddingVertical: 14, borderRadius: 10, backgroundColor: C.primary, alignItems: 'center', justifyContent: 'center' },
-  modalConfirmText: { color: C.white, fontWeight: '800', fontSize: 14 },
-  modalBackdrop: { flex: 1, backgroundColor: 'rgba(15,23,42,0.6)', justifyContent: 'center', alignItems: 'center', padding: 20 },
-  credCard: { backgroundColor: C.white, borderRadius: 20, padding: 22, width: '100%', maxWidth: 380, borderWidth: 1, borderColor: C.nightBorder, alignItems: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.15, shadowRadius: 16, elevation: 8 },
-  credIconWrap: { width: 56, height: 56, borderRadius: 28, backgroundColor: '#FEF3C7', borderWidth: 1, borderColor: '#FDE68A', justifyContent: 'center', alignItems: 'center', marginBottom: 12 },
-  credTitle: { fontSize: 17, fontWeight: '800', color: C.text, textAlign: 'center', marginBottom: 6 },
-  credNote: { fontSize: 12, color: C.textSub, textAlign: 'center', lineHeight: 17, marginBottom: 16 },
-  credBox: { width: '100%', backgroundColor: '#F8FAFC', borderRadius: 10, padding: 14, borderWidth: 1, borderColor: C.nightBorder, marginBottom: 18 },
-  credRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  credLabel: { fontSize: 11, color: C.textMuted, fontWeight: '700' },
-  credVal: { fontSize: 14, color: C.primary, fontWeight: '800', letterSpacing: 0.5 },
-  credOkBtn: { backgroundColor: C.primary, borderRadius: 10, paddingVertical: 12, paddingHorizontal: 36, width: '100%', alignItems: 'center' },
-  credOkBtnText: { color: C.white, fontSize: 14, fontWeight: '800' },
   headerLogoWrap: {
     width: 44,
     height: 44,
     borderRadius: 12,
-    backgroundColor: '#E0F2FE',
+    backgroundColor: C.primaryDim,
     borderWidth: 1,
     borderColor: '#BAE6FD',
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 12,
+    marginRight: 10,
     position: 'relative',
-    overflow: 'visible',
   },
-  headerLogoImg: {
-    width: 42,
-    height: 42,
-    borderRadius: 11,
-  },
+  headerLogoImg: { width: 42, height: 42, borderRadius: 11 },
   headerCameraBadge: {
     position: 'absolute',
     bottom: -3,
@@ -1099,66 +1727,352 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     borderColor: C.white,
   },
-  logoManagementCard: {
+  adminPill: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#F8FAFC',
-    borderRadius: 14,
-    padding: 14,
-    marginBottom: 16,
+    backgroundColor: C.yellowDim,
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
     borderWidth: 1,
-    borderColor: C.nightBorder,
+    borderColor: '#FDE68A',
+    marginBottom: 4,
+    alignSelf: 'flex-start',
   },
-  logoPreviewWrap: {
-    width: 68,
-    height: 68,
-    borderRadius: 12,
+  adminPillText: { fontSize: 10, fontWeight: '800', color: C.yellow, letterSpacing: 1 },
+  headerTitle: { fontSize: 20, fontWeight: '900', color: C.text, marginBottom: 2 },
+  pumpCodeRow: { flexDirection: 'row', alignItems: 'center' },
+  pumpCodeText: { fontSize: 12, color: C.primary, fontWeight: '600' },
+  profileHeaderBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 10,
+    backgroundColor: C.primaryDim,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  logoutBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 10,
+    backgroundColor: C.redDim,
+    borderWidth: 1,
+    borderColor: '#FECACA',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  tabScrollWrap: { backgroundColor: '#F1F5F9', borderTopWidth: 1, borderTopColor: C.nightBorder },
+  tabScrollContent: { paddingHorizontal: 12, paddingVertical: 8, gap: 6 },
+  tabButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: 20,
     backgroundColor: C.white,
     borderWidth: 1,
     borderColor: C.nightBorder,
-    justifyContent: 'center',
-    alignItems: 'center',
-    overflow: 'hidden',
-    position: 'relative',
   },
-  logoPreviewImg: {
-    width: 64,
-    height: 64,
+  tabButtonActive: {
+    backgroundColor: C.primary,
+    borderColor: C.primary,
   },
-  logoEmptyPlaceholder: {
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  logoEmptyText: {
-    fontSize: 9,
-    color: C.textMuted,
+  tabButtonText: {
+    fontSize: 12,
     fontWeight: '700',
-    marginTop: 2,
-  },
-  logoUploadingOverlay: {
-    ...StyleSheet.absoluteFill,
-    backgroundColor: 'rgba(255,255,255,0.7)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  logoCardTitle: {
-    fontSize: 13,
-    fontWeight: '800',
-    color: C.text,
-  },
-  logoCardSub: {
-    fontSize: 11,
     color: C.textSub,
-    marginTop: 2,
-    marginBottom: 8,
-    lineHeight: 15,
   },
-  logoBtnRow: {
+  tabButtonTextActive: {
+    color: C.white,
+  },
+  scrollContent: { padding: 14, paddingBottom: 60 },
+  roleBanner: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    backgroundColor: C.yellowDim,
+    borderRadius: 10,
+    padding: 10,
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+    marginBottom: 12,
   },
-  logoUploadBtn: {
+  roleBannerText: {
+    fontSize: 11,
+    color: '#92400E',
+    fontWeight: '600',
+    flex: 1,
+    lineHeight: 16,
+  },
+  statsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 12 },
+  statCard: {
+    flex: 1,
+    minWidth: '47%',
+    backgroundColor: C.white,
+    borderRadius: 14,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: C.nightBorder,
+    shadowColor: '#64748B',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 1,
+  },
+  statIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  statVal: { fontSize: 22, fontWeight: '900', color: C.text, marginBottom: 2 },
+  statLabel: { fontSize: 11, color: C.textSub, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5 },
+  secondaryStatsRow: {
+    flexDirection: 'row',
+    backgroundColor: C.white,
+    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 10,
+    marginBottom: 14,
+    borderWidth: 1,
+    borderColor: C.nightBorder,
+    justifyContent: 'space-around',
+    alignItems: 'center',
+  },
+  secondaryStatItem: { alignItems: 'center', flex: 1 },
+  secondaryStatNum: { fontSize: 16, fontWeight: '900', color: C.text },
+  secondaryStatLabel: { fontSize: 10, fontWeight: '700', color: C.textMuted, marginTop: 2, textTransform: 'uppercase' },
+  secondaryStatDivider: { width: 1, height: 24, backgroundColor: C.nightBorder },
+  actionRow: { flexDirection: 'row', gap: 8, marginBottom: 16 },
+  actionBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 11,
+    borderRadius: 10,
+    borderWidth: 1,
+  },
+  actionBtnText: { fontSize: 12, fontWeight: '800' },
+  sectionHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+    marginTop: 4,
+  },
+  sectionTitle: { fontSize: 15, fontWeight: '800', color: C.text },
+  viewAllText: { fontSize: 12, fontWeight: '700', color: C.primary },
+  centerBox: { padding: 40, alignItems: 'center' },
+  emptyCard: {
+    backgroundColor: C.white,
+    borderRadius: 14,
+    padding: 32,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: C.nightBorder,
+    marginTop: 10,
+  },
+  emptyTitle: { fontSize: 15, fontWeight: '800', color: C.text, marginTop: 10, marginBottom: 4 },
+  emptySubtitle: { fontSize: 12, color: C.textSub, textAlign: 'center', lineHeight: 17 },
+  reqCard: {
+    backgroundColor: C.white,
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: C.nightBorder,
+    shadowColor: '#64748B',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 3,
+    elevation: 1,
+  },
+  reqCardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 },
+  reqNumber: { fontSize: 14, fontWeight: '800', color: C.text },
+  reqDate: { fontSize: 10, color: C.textMuted, marginTop: 2 },
+  statusBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    borderWidth: 1,
+  },
+  statusBadgeText: { fontSize: 10, fontWeight: '800', letterSpacing: 0.5 },
+  indianPlateWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1.5,
+    borderColor: '#0F172A',
+    borderRadius: 6,
+    backgroundColor: '#FFFFFF',
+    alignSelf: 'flex-start',
+    overflow: 'hidden',
+    marginBottom: 10,
+  },
+  indStripe: {
+    backgroundColor: '#1E3A8A',
+    paddingHorizontal: 5,
+    paddingVertical: 4,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  indText: { color: '#FFFFFF', fontSize: 8, fontWeight: '900', letterSpacing: 0.5 },
+  indPlateNumber: {
+    fontSize: 14,
+    fontWeight: '900',
+    color: '#0F172A',
+    letterSpacing: 1.5,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  indianPlateSmall: {
+    borderWidth: 1,
+    borderColor: '#0F172A',
+    borderRadius: 4,
+    backgroundColor: '#FFFFFF',
+    alignSelf: 'flex-start',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    marginTop: 3,
+  },
+  indianPlateTextSmall: { fontSize: 11, fontWeight: '900', color: '#0F172A', letterSpacing: 1 },
+  reqDetailsGrid: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    backgroundColor: '#F8FAFC',
+    borderRadius: 8,
+    padding: 10,
+    borderWidth: 1,
+    borderColor: C.nightBorder,
+  },
+  reqDetailItem: { flex: 1 },
+  reqDetailLabel: { fontSize: 9, fontWeight: '800', color: C.textMuted, letterSpacing: 0.5, marginBottom: 2 },
+  reqDetailVal: { fontSize: 12, fontWeight: '800', color: C.text },
+  reqDetailSub: { fontSize: 10, color: C.textMuted, marginTop: 1 },
+  remarksBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 8,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: C.nightBorder,
+  },
+  remarksText: { fontSize: 11, color: C.textSub, fontStyle: 'italic', flex: 1 },
+  filterScroll: { flexDirection: 'row', marginBottom: 10 },
+  filterChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    backgroundColor: C.white,
+    borderWidth: 1,
+    borderColor: C.nightBorder,
+    marginRight: 6,
+  },
+  filterChipActive: { backgroundColor: C.primary, borderColor: C.primary },
+  filterChipText: { fontSize: 11, fontWeight: '700', color: C.textSub },
+  filterChipTextActive: { color: C.white },
+  searchBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: C.white,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    height: 44,
+    borderWidth: 1,
+    borderColor: C.nightBorder,
+    marginBottom: 12,
+  },
+  searchInput: { flex: 1, color: C.text, fontSize: 13 },
+  infoCallout: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    backgroundColor: C.primaryDim,
+    borderRadius: 12,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#BAE6FD',
+    marginBottom: 12,
+  },
+  infoCalloutTitle: { fontSize: 13, fontWeight: '800', color: C.primary, marginBottom: 2 },
+  infoCalloutText: { fontSize: 11, color: C.textSub, lineHeight: 16 },
+  eligibleTruckCard: {
+    backgroundColor: C.white,
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: C.nightBorder,
+    shadowColor: '#64748B',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 3,
+    elevation: 1,
+  },
+  eligibleTruckTop: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  eligiblePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: C.greenDim,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#86EFAC',
+  },
+  eligiblePillText: { fontSize: 10, fontWeight: '800', color: C.green },
+  activeReqPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: C.yellowDim,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+  },
+  activeReqPillText: { fontSize: 10, fontWeight: '800', color: C.yellow },
+  truckInfoGrid: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    backgroundColor: '#F8FAFC',
+    borderRadius: 8,
+    padding: 10,
+    borderWidth: 1,
+    borderColor: C.nightBorder,
+    marginBottom: 10,
+  },
+  truckInfoItem: { flex: 1 },
+  truckInfoLabel: { fontSize: 9, fontWeight: '800', color: C.textMuted, letterSpacing: 0.5, marginBottom: 2 },
+  truckInfoVal: { fontSize: 12, fontWeight: '800', color: C.text },
+  truckInfoSub: { fontSize: 10, color: C.textMuted, marginTop: 1 },
+  createReqBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: C.primary,
+    borderRadius: 8,
+    paddingVertical: 10,
+  },
+  createReqBtnDisabled: {
+    backgroundColor: '#F1F5F9',
+    borderWidth: 1,
+    borderColor: C.nightBorder,
+  },
+  createReqBtnText: { color: C.white, fontSize: 12, fontWeight: '800' },
+  createReqBtnTextDisabled: { color: C.textMuted },
+  tabActionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  smallActionBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: C.primary,
@@ -1166,21 +2080,81 @@ const styles = StyleSheet.create({
     paddingVertical: 7,
     borderRadius: 8,
   },
-  logoUploadBtnText: {
-    color: C.white,
-    fontSize: 11,
-    fontWeight: '800',
-  },
-  logoRemoveBtn: {
-    backgroundColor: '#FEE2E2',
+  smallActionBtnText: { color: C.white, fontSize: 11, fontWeight: '800' },
+  custCard: {
+    backgroundColor: C.white,
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 10,
     borderWidth: 1,
-    borderColor: '#FECACA',
-    paddingHorizontal: 10,
-    paddingVertical: 7,
-    borderRadius: 8,
+    borderColor: C.nightBorder,
+    shadowColor: '#64748B',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 3,
+    elevation: 1,
+  },
+  custHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 10 },
+  custAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: C.primaryDim,
+    borderWidth: 1.5,
+    borderColor: '#38BDF8',
     justifyContent: 'center',
     alignItems: 'center',
+    marginRight: 10,
   },
+  custAvatarText: { fontSize: 16, fontWeight: '800', color: C.primary },
+  custName: { fontSize: 14, fontWeight: '800', color: C.text },
+  custPhoneRow: { flexDirection: 'row', alignItems: 'center', marginTop: 2 },
+  custUsername: { fontSize: 11, color: C.primary, fontWeight: '700' },
+  custDivider: { fontSize: 10, color: C.textMuted, marginHorizontal: 5 },
+  custPhone: { fontSize: 11, color: C.textSub },
+  truckBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: C.primaryDim,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#BAE6FD',
+  },
+  truckBadgeText: { fontSize: 11, fontWeight: '800', color: C.primary },
+  custFooter: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: C.nightBorder,
+  },
+  custId: { fontSize: 11, color: C.textMuted, fontWeight: '600' },
+  activePill: { flexDirection: 'row', alignItems: 'center' },
+  activeDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: C.green, marginRight: 5 },
+  activePillText: { fontSize: 11, fontWeight: '700', color: C.green },
+  statusTextBadge: { fontSize: 11, fontWeight: '700' },
+  opCredContainer: {
+    backgroundColor: '#F8FAFC',
+    borderRadius: 10,
+    padding: 10,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: C.nightBorder,
+  },
+  opCredRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  opCredLabel: { fontSize: 11, color: C.textSub, fontWeight: '700' },
+  opCredVal: { fontSize: 12, color: C.text, fontWeight: '800' },
+  tempBadge: {
+    backgroundColor: 'rgba(217, 119, 6, 0.15)',
+    paddingHorizontal: 5,
+    paddingVertical: 2,
+    borderRadius: 4,
+    marginRight: 6,
+  },
+  tempBadgeText: { fontSize: 9, color: C.yellow, fontWeight: '800' },
   statusPill: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1189,76 +2163,46 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     borderWidth: 1,
   },
-  activePillBg: {
-    backgroundColor: '#DCFCE7',
-    borderColor: '#86EFAC',
-  },
-  inactivePillBg: {
-    backgroundColor: '#FEE2E2',
-    borderColor: '#FECACA',
-  },
-  statusDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    marginRight: 4,
-  },
-  activeDotBg: {
-    backgroundColor: C.green,
-  },
-  inactiveDotBg: {
-    backgroundColor: C.red,
-  },
-  statusPillText: {
-    fontSize: 10,
-    fontWeight: '800',
-    letterSpacing: 0.5,
-  },
-  activeStatusPillText: {
-    color: '#15803D',
-  },
-  inactiveStatusPillText: {
-    color: '#B91C1C',
-  },
-  cardActionRow: {
-    flexDirection: 'row',
-    gap: 8,
-    marginBottom: 10,
-  },
+  activePillBg: { backgroundColor: '#DCFCE7', borderColor: '#86EFAC' },
+  inactivePillBg: { backgroundColor: '#FEE2E2', borderColor: '#FECACA' },
+  statusDot: { width: 6, height: 6, borderRadius: 3, marginRight: 4 },
+  activeDotBg: { backgroundColor: C.green },
+  inactiveDotBg: { backgroundColor: C.red },
+  statusPillText: { fontSize: 10, fontWeight: '800', letterSpacing: 0.5 },
+  activeStatusPillText: { color: '#15803D' },
+  inactiveStatusPillText: { color: '#B91C1C' },
+  cardActionRow: { flexDirection: 'row', gap: 8, marginBottom: 8 },
   opActionBtn: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 8,
-    paddingHorizontal: 10,
+    paddingVertical: 7,
+    paddingHorizontal: 8,
     borderRadius: 8,
     borderWidth: 1,
   },
-  activateBtn: {
-    backgroundColor: '#DCFCE7',
-    borderColor: '#86EFAC',
+  activateBtn: { backgroundColor: '#DCFCE7', borderColor: '#86EFAC' },
+  deactivateBtn: { backgroundColor: '#FEF3C7', borderColor: '#FDE68A' },
+  deleteBtn: { backgroundColor: '#FEE2E2', borderColor: '#FECACA' },
+  opActionBtnText: { fontSize: 11, fontWeight: '800' },
+  pumpInfoCard: {
+    backgroundColor: C.white,
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: C.nightBorder,
   },
-  deactivateBtn: {
-    backgroundColor: '#FEF3C7',
-    borderColor: '#FDE68A',
-  },
-  deleteBtn: {
-    backgroundColor: '#FEE2E2',
-    borderColor: '#FECACA',
-  },
-  opActionBtnText: {
-    fontSize: 11,
-    fontWeight: '800',
-  },
-  profileHeaderBtn: {
-    width: 38,
-    height: 38,
-    borderRadius: 10,
-    backgroundColor: '#E0F2FE',
-    justifyContent: 'center',
+  pumpInfoHeader: {
+    flexDirection: 'row',
     alignItems: 'center',
+    gap: 8,
+    marginBottom: 14,
+    paddingBottom: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: C.nightBorder,
   },
+  pumpInfoTitle: { fontSize: 16, fontWeight: '800', color: C.text },
   openProfileBanner: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1270,19 +2214,215 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#BAE6FD',
   },
-  openProfileBannerLeft: {
+  openProfileBannerLeft: { flexDirection: 'row', alignItems: 'center', flex: 1 },
+  openProfileBannerTitle: { fontSize: 13, fontWeight: '800', color: C.text },
+  openProfileBannerSubtitle: { fontSize: 11, color: C.textMuted, marginTop: 1 },
+  logoManagementCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    flex: 1,
+    backgroundColor: '#F8FAFC',
+    borderRadius: 14,
+    padding: 12,
+    marginBottom: 14,
+    borderWidth: 1,
+    borderColor: C.nightBorder,
   },
-  openProfileBannerTitle: {
-    fontSize: 13,
-    fontWeight: '800',
+  logoPreviewWrap: {
+    width: 64,
+    height: 64,
+    borderRadius: 12,
+    backgroundColor: C.white,
+    borderWidth: 1,
+    borderColor: C.nightBorder,
+    justifyContent: 'center',
+    alignItems: 'center',
+    overflow: 'hidden',
+  },
+  logoPreviewImg: { width: 60, height: 60 },
+  logoEmptyPlaceholder: { justifyContent: 'center', alignItems: 'center' },
+  logoEmptyText: { fontSize: 9, color: C.textMuted, fontWeight: '700', marginTop: 2 },
+  logoUploadingOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(255,255,255,0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  logoCardTitle: { fontSize: 13, fontWeight: '800', color: C.text },
+  logoCardSub: { fontSize: 11, color: C.textSub, marginTop: 2, marginBottom: 8, lineHeight: 15 },
+  logoBtnRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  logoUploadBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: C.primary,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+  },
+  logoUploadBtnText: { color: C.white, fontSize: 11, fontWeight: '800' },
+  logoRemoveBtn: {
+    backgroundColor: '#FEE2E2',
+    borderWidth: 1,
+    borderColor: '#FECACA',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  infoRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingVertical: 9,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F5F9',
+  },
+  infoKey: { fontSize: 12, color: C.textSub },
+  infoVal: { fontSize: 12, color: C.text, fontWeight: '600' },
+  adminInfoBlock: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F8FAFC',
+    borderRadius: 12,
+    padding: 12,
+    marginTop: 14,
+    borderWidth: 1,
+    borderColor: C.nightBorder,
+  },
+  adminInfoLabel: { fontSize: 9, color: C.textSub, fontWeight: '700', textTransform: 'uppercase' },
+  adminInfoName: { fontSize: 13, fontWeight: '800', color: C.text, marginTop: 1 },
+  adminInfoMobile: { fontSize: 11, color: C.primary, marginTop: 1, fontWeight: '600' },
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(15,23,42,0.5)', justifyContent: 'flex-end' },
+  modalSheet: {
+    backgroundColor: C.white,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    padding: 20,
+    borderWidth: 1,
+    borderColor: C.nightBorder,
+  },
+  modalHandle: { width: 40, height: 4, borderRadius: 2, backgroundColor: '#CBD5E1', alignSelf: 'center', marginBottom: 12 },
+  modalTitle: { fontSize: 18, fontWeight: '800', color: C.text, textAlign: 'center' },
+  modalSubtitle: { fontSize: 12, color: C.textSub, textAlign: 'center', marginTop: 2, marginBottom: 14 },
+  selectedTruckReviewBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F8FAFC',
+    borderRadius: 10,
+    padding: 10,
+    borderWidth: 1,
+    borderColor: C.nightBorder,
+    marginBottom: 12,
+  },
+  reviewTruckOwner: { fontSize: 12, fontWeight: '800', color: C.text },
+  reviewTruckMeta: { fontSize: 11, color: C.textMuted, marginTop: 2 },
+  modalInputGroup: { marginBottom: 12 },
+  inputLabel: { fontSize: 10, fontWeight: '800', color: C.textSub, letterSpacing: 0.6, marginBottom: 4 },
+  capacityHint: { fontSize: 10, fontWeight: '700', color: C.primary },
+  charCount: { fontSize: 11, fontWeight: '800' },
+  textInput: {
+    backgroundColor: '#F8FAFC',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    height: 44,
     color: C.text,
+    fontSize: 13,
+    borderWidth: 1,
+    borderColor: C.nightBorder,
   },
-  openProfileBannerSubtitle: {
-    fontSize: 11,
-    color: C.textMuted,
-    marginTop: 1,
+  singleNoticeBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: C.primaryDim,
+    padding: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#BAE6FD',
+    marginBottom: 14,
   },
+  singleNoticeText: { fontSize: 11, color: C.primary, flex: 1, lineHeight: 15, fontWeight: '600' },
+  autoGenNote: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FEF3C7',
+    padding: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+    marginBottom: 14,
+  },
+  autoGenNoteText: { fontSize: 11, color: C.yellow, flex: 1, lineHeight: 16, fontWeight: '600' },
+  modalBtnRow: { flexDirection: 'row', gap: 10, marginTop: 4 },
+  modalCancelBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 10,
+    backgroundColor: '#F1F5F9',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: C.nightBorder,
+  },
+  modalCancelText: { color: C.textSub, fontWeight: '700', fontSize: 13 },
+  modalConfirmBtn: {
+    flex: 1.5,
+    paddingVertical: 12,
+    borderRadius: 10,
+    backgroundColor: C.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modalConfirmText: { color: C.white, fontWeight: '800', fontSize: 13 },
+  modalBackdrop: { flex: 1, backgroundColor: 'rgba(15,23,42,0.6)', justifyContent: 'center', alignItems: 'center', padding: 20 },
+  credCard: {
+    backgroundColor: C.white,
+    borderRadius: 20,
+    padding: 22,
+    width: '100%',
+    maxWidth: 380,
+    borderWidth: 1,
+    borderColor: C.nightBorder,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.15,
+    shadowRadius: 16,
+    elevation: 8,
+  },
+  credIconWrap: {
+    width: 54,
+    height: 54,
+    borderRadius: 27,
+    backgroundColor: '#FEF3C7',
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  credTitle: { fontSize: 16, fontWeight: '800', color: C.text, textAlign: 'center', marginBottom: 6 },
+  credNote: { fontSize: 11, color: C.textSub, textAlign: 'center', lineHeight: 16, marginBottom: 14 },
+  credBox: {
+    width: '100%',
+    backgroundColor: '#F8FAFC',
+    borderRadius: 10,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: C.nightBorder,
+    marginBottom: 16,
+  },
+  credRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  credLabel: { fontSize: 10, color: C.textMuted, fontWeight: '700' },
+  credVal: { fontSize: 13, color: C.primary, fontWeight: '800', letterSpacing: 0.5 },
+  credOkBtn: {
+    backgroundColor: C.primary,
+    borderRadius: 10,
+    paddingVertical: 11,
+    paddingHorizontal: 36,
+    width: '100%',
+    alignItems: 'center',
+  },
+  credOkBtnText: { color: C.white, fontSize: 13, fontWeight: '800' },
 });

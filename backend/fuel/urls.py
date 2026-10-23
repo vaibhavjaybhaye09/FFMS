@@ -14,6 +14,8 @@ from .views import (
     PumpAdminOperatorStatusAPIView,
     PumpAdminOperatorDeleteAPIView,
     PumpAdminDashboardStatsAPIView,
+    PumpAdminEligibleTrucksAPIView,
+    PumpAdminFuelRequestsAPIView,
     CustomerTruckListCreateAPIView,
     CustomerDriverCreateAPIView,
     CustomerAvailableDriversAPIView,
@@ -34,6 +36,7 @@ from .views import (
     AssignOperatorToPumpAPIView,
     AssignDriverToTruckAPIView,
     CreateFuelRequestAPIView,
+    BulkFuelRequestCreateAPIView,
     FuelRequestUpdateAPIView,
     FuelRequestDeleteAPIView,
     ApproveFuelRequestAPIView,
@@ -65,6 +68,8 @@ urlpatterns = [
     path("pump-admin/operators/<int:operator_id>/status/", PumpAdminOperatorStatusAPIView.as_view(), name="pump-admin-operator-status"),
     path("pump-admin/operators/<int:operator_id>/delete/", PumpAdminOperatorDeleteAPIView.as_view(), name="pump-admin-operator-delete"),
     path("pump-admin/dashboard/", PumpAdminDashboardStatsAPIView.as_view(), name="pump-admin-dashboard"),
+    path("pump-admin/eligible-trucks/", PumpAdminEligibleTrucksAPIView.as_view(), name="pump-admin-eligible-trucks"),
+    path("pump-admin/fuel-requests/", PumpAdminFuelRequestsAPIView.as_view(), name="pump-admin-fuel-requests"),
 
     # Truck Owner (Customer) endpoints
     path("customer/trucks/", CustomerTruckListCreateAPIView.as_view(), name="customer-truck-list"),
@@ -74,6 +79,7 @@ urlpatterns = [
     path("customer/drivers/<int:driver_id>/status/", CustomerDriverStatusAPIView.as_view(), name="customer-driver-status"),
     path("customer/drivers/<int:driver_id>/delete/", CustomerDriverDeleteAPIView.as_view(), name="customer-driver-delete"),
     path("customer/fuel-requests/", CustomerFuelRequestsAPIView.as_view(), name="customer-fuel-requests"),
+    path("customer/fuel-requests/bulk-create/", BulkFuelRequestCreateAPIView.as_view(), name="customer-fuel-requests-bulk-create"),
     path("customer/dashboard/", CustomerDashboardStatsAPIView.as_view(), name="customer-dashboard"),
 
     # Pump endpoints
@@ -94,6 +100,7 @@ urlpatterns = [
     # Fuel Request endpoints
     path("fuel-requests/mine/", MyFuelRequestsAPIView.as_view(), name="fuel-requests-mine"),
     path("fuel-requests/create/", CreateFuelRequestAPIView.as_view(), name="fuel-request-create"),
+    path("fuel-requests/bulk-create/", BulkFuelRequestCreateAPIView.as_view(), name="fuel-request-bulk-create"),
     path("fuel-requests/<int:fuel_request_id>/update/", FuelRequestUpdateAPIView.as_view(), name="fuel-request-update"),
     path("fuel-requests/<int:fuel_request_id>/delete/", FuelRequestDeleteAPIView.as_view(), name="fuel-request-delete"),
     

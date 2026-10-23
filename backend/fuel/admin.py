@@ -353,7 +353,6 @@ class TruckAdmin(admin.ModelAdmin):
         "id",
         "truck_number",
         "customer_name",
-        "driver_name",
         "fuel_type",
         "capacity_liters",
         "is_active",
@@ -369,9 +368,8 @@ class TruckAdmin(admin.ModelAdmin):
     search_fields = (
         "truck_number",
         "customer__first_name",
+        "customer__last_name",
         "customer__mobile_number",
-        "driver__first_name",
-        "driver__mobile_number",
     )
 
     readonly_fields = (
@@ -386,7 +384,6 @@ class TruckAdmin(admin.ModelAdmin):
                 "fields": (
                     "truck_number",
                     "customer",
-                    "driver",
                     "fuel_type",
                     "capacity_liters",
                 )
@@ -411,17 +408,10 @@ class TruckAdmin(admin.ModelAdmin):
 
     def customer_name(self, obj):
         if obj.customer:
-            return obj.customer.get_full_name()
+            return obj.customer.get_full_name() or obj.customer.username
         return "—"
 
-    customer_name.short_description = "Regular Customer"
-
-    def driver_name(self, obj):
-        if obj.driver:
-            return obj.driver.get_full_name()
-        return "—"
-
-    driver_name.short_description = "Driver"
+    customer_name.short_description = "Truck Owner"
 
 
 @admin.register(FuelRequest)
@@ -430,8 +420,9 @@ class FuelRequestAdmin(admin.ModelAdmin):
     list_display = (
         "id",
         "request_number",
-        "driver_name",
         "truck",
+        "customer_name",
+        "created_by",
         "pump",
         "fuel_type",
         "status",
@@ -448,9 +439,11 @@ class FuelRequestAdmin(admin.ModelAdmin):
 
     search_fields = (
         "request_number",
-        "driver__first_name",
-        "driver__mobile_number",
         "truck__truck_number",
+        "truck__customer__first_name",
+        "truck__customer__mobile_number",
+        "created_by__first_name",
+        "created_by__mobile_number",
     )
 
     readonly_fields = (
@@ -467,7 +460,7 @@ class FuelRequestAdmin(admin.ModelAdmin):
             {
                 "fields": (
                     "request_number",
-                    "driver",
+                    "created_by",
                     "truck",
                     "pump",
                 )
@@ -513,10 +506,12 @@ class FuelRequestAdmin(admin.ModelAdmin):
         "mark_completed",
     ]
 
-    def driver_name(self, obj):
-        return obj.driver.get_full_name()
+    def customer_name(self, obj):
+        if obj.truck and obj.truck.customer:
+            return obj.truck.customer.get_full_name() or obj.truck.customer.username
+        return "-"
 
-    driver_name.short_description = "Driver"
+    customer_name.short_description = "Truck Owner"
 
     def mark_approved(self, request, queryset):
         count = queryset.update(status=FuelRequest.Status.APPROVED)

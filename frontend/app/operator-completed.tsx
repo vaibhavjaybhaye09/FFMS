@@ -10,6 +10,7 @@ import {
   StatusBar,
   TextInput,
   Image,
+  Alert,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -63,18 +64,21 @@ export default function OperatorCompletedScreen() {
       }
     } catch (error: any) {
       console.error('Error loading operator completed requests:', error);
-      setCompletedRequests([]);
+      if (refreshing) {
+        Alert.alert('Refresh Failed', 'Could not refresh completed records. Showing cached data.');
+      }
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, []);
+  }, [refreshing]);
 
   useEffect(() => {
     loadData();
   }, [loadData]);
 
   const onRefresh = () => {
+    if (refreshing) return;
     setRefreshing(true);
     loadData();
   };
@@ -85,8 +89,8 @@ export default function OperatorCompletedScreen() {
     return (
       item.request_number?.toLowerCase().includes(q) ||
       item.truck_number?.toLowerCase().includes(q) ||
-      item.driver_name?.toLowerCase().includes(q) ||
-      item.customer_name?.toLowerCase().includes(q)
+      item.customer_name?.toLowerCase().includes(q) ||
+      item.created_by_name?.toLowerCase().includes(q)
     );
   });
 
@@ -154,7 +158,7 @@ export default function OperatorCompletedScreen() {
             <Ionicons name="search-outline" size={18} color={C.textMuted} style={{ marginRight: 8 }} />
             <TextInput
               style={styles.searchInput}
-              placeholder="Filter by plate, request #, or driver..."
+              placeholder="Filter by plate, request #, or owner..."
               placeholderTextColor={C.textMuted}
               value={searchQuery}
               onChangeText={setSearchQuery}
@@ -223,14 +227,14 @@ export default function OperatorCompletedScreen() {
               <View style={styles.infoGrid}>
                 <View style={styles.infoRow}>
                   <Ionicons name="person-circle-outline" size={15} color={C.neon} />
-                  <Text style={styles.infoKey}>Driver</Text>
-                  <Text style={styles.infoVal}>{item.driver_name || 'Driver'}</Text>
+                  <Text style={styles.infoKey}>Truck Owner</Text>
+                  <Text style={styles.infoVal}>{item.customer_name || 'Truck Owner'}</Text>
                 </View>
-                {item.customer_name ? (
+                {item.created_by_name ? (
                   <View style={styles.infoRow}>
-                    <Ionicons name="business-outline" size={15} color={C.yellow} />
-                    <Text style={styles.infoKey}>Fleet</Text>
-                    <Text style={styles.infoVal}>{item.customer_name}</Text>
+                    <Ionicons name="shield-checkmark-outline" size={15} color={C.yellow} />
+                    <Text style={styles.infoKey}>Created By</Text>
+                    <Text style={styles.infoVal}>{item.created_by_name} ({item.created_by_role || 'User'})</Text>
                   </View>
                 ) : null}
                 <View style={styles.infoRow}>

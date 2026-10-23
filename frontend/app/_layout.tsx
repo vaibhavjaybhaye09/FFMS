@@ -18,8 +18,6 @@ export default function RootLayout() {
         <Stack.Screen name="customer-profile" options={{ title: 'Customer Profile' }} />
         <Stack.Screen name="pump-admin" options={{ title: 'Pump Admin Dashboard', headerShown: false }} />
         <Stack.Screen name="pump-admin-profile" options={{ title: 'Pump Admin Profile', headerShown: false }} />
-        <Stack.Screen name="driver" options={{ title: 'Driver Dashboard' }} />
-        <Stack.Screen name="driver-profile" options={{ title: 'Driver Profile' }} />
         <Stack.Screen name="operator" options={{ title: 'Operator Dashboard' }} />
         <Stack.Screen name="operator-profile" options={{ title: 'Operator Profile' }} />
         <Stack.Screen name="operator-completed" options={{ title: 'Completed Requests' }} />

@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -13,135 +13,163 @@ import {
   Modal,
   RefreshControl,
   StatusBar,
-  ImageBackground,
+  Dimensions,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import apiClient from '../src/api/client';
-import { getUser, removeToken } from '../src/storage/token';
+import { getUser } from '../src/storage/token';
 import { useTranslation } from '../src/i18n/LanguageContext';
+
+const { width } = Dimensions.get('window');
 
 const C = {
   primary:    '#0284C7',
+  primaryDark:'#0369A1',
   yellow:     '#D97706',
+  yellowLight:'#FEF3C7',
   white:      '#FFFFFF',
   red:        '#DC2626',
+  redLight:   '#FEE2E2',
   night:      '#F8FAFC',
-  nightCard:  '#FFFFFF',
-  nightCard2: '#F1F5F9',
-  nightBorder:'#E2E8F0',
+  card:       '#FFFFFF',
+  card2:      '#F1F5F9',
+  border:     '#E2E8F0',
+  borderStrong:'#CBD5E1',
   neon:       '#0284C7',
   green:      '#16A34A',
+  greenLight: '#DCFCE7',
   text:       '#0F172A',
   textMuted:  '#64748B',
   textSub:    '#334155',
 };
 
-const STATUS_MAP: Record<string, { bg: string; text: string }> = {
-  COMPLETED: { bg: '#DCFCE7', text: '#16A34A' },
-  APPROVED:  { bg: '#E0F2FE', text: '#0284C7' },
-  VERIFIED:  { bg: '#DCFCE7', text: '#16A34A' },
-  REJECTED:  { bg: '#FEE2E2', text: '#DC2626' },
-  PENDING:   { bg: '#FEF3C7', text: '#D97706' },
+const STATUS_MAP: Record<string, { bg: string; text: string; icon: any }> = {
+  COMPLETED: { bg: '#DCFCE7', text: '#16A34A', icon: 'checkmark-done-circle' },
+  APPROVED:  { bg: '#E0F2FE', text: '#0284C7', icon: 'checkmark-circle' },
+  VERIFIED:  { bg: '#DCFCE7', text: '#16A34A', icon: 'shield-checkmark' },
+  REJECTED:  { bg: '#FEE2E2', text: '#DC2626', icon: 'close-circle' },
+  PENDING:   { bg: '#FEF3C7', text: '#D97706', icon: 'time' },
 };
 
 export default function CustomerScreen() {
   const router = useRouter();
   const { t } = useTranslation();
 
-  const [activeTab, setActiveTab] = useState<'trucks' | 'drivers' | 'requests'>('trucks');
+  const [activeTab, setActiveTab] = useState<'trucks' | 'bulk_request' | 'requests'>('trucks');
   const [customerUser, setCustomerUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
-  const [stats, setStats] = useState({ total_trucks: 0, assigned_trucks: 0, unassigned_trucks: 0, total_requests: 0 });
+  const [stats, setStats] = useState({
+    total_trucks: 0,
+    active_trucks: 0,
+    eligible_trucks: 0,
+    total_requests: 0,
+    pending_requests: 0,
+    approved_requests: 0,
+    completed_requests: 0,
+    rejected_requests: 0,
+  });
+
   const [trucks, setTrucks] = useState<any[]>([]);
-  const [drivers, setDrivers] = useState<any[]>([]);
   const [requests, setRequests] = useState<any[]>([]);
+  const [pumps, setPumps] = useState<any[]>([]);
+  const [selectedPumpId, setSelectedPumpId] = useState<number | null>(null);
 
   // Modal: Add Truck
   const [addTruckVisible, setAddTruckVisible] = useState(false);
   const [newTruckNumber, setNewTruckNumber] = useState('');
   const [newFuelType, setNewFuelType] = useState('DIESEL');
-  const [newCapacity, setNewCapacity] = useState('200');
+  const [newCapacity, setNewCapacity] = useState('250');
   const [submittingTruck, setSubmittingTruck] = useState(false);
 
-  // Modal: Create Driver (8-digit auto password)
-  const [createDriverVisible, setCreateDriverVisible] = useState(false);
-  const [drvName, setDrvName] = useState('');
-  const [drvMobile, setDrvMobile] = useState('');
-  const [submittingDriver, setSubmittingDriver] = useState(false);
+  // Modal: Edit Truck
+  const [editTruckVisible, setEditTruckVisible] = useState(false);
+  const [editingTruck, setEditingTruck] = useState<any>(null);
+  const [editFuelType, setEditFuelType] = useState('DIESEL');
+  const [editCapacity, setEditCapacity] = useState('');
+  const [editIsActive, setEditIsActive] = useState(true);
+  const [updatingTruck, setUpdatingTruck] = useState(false);
 
-  // Modal: Generated Credentials Success Display
-  const [credModal, setCredModal] = useState<{ visible: boolean; title: string; username: string; password?: string; note: string }>({
-    visible: false,
-    title: '',
-    username: '',
-    password: '',
-    note: '',
-  });
+  // Bulk Request State
+  const [selectedTruckIds, setSelectedTruckIds] = useState<number[]>([]);
+  const [truckLiters, setTruckLiters] = useState<Record<number, string>>({});
+  const [truckRemarks, setTruckRemarks] = useState<Record<number, string>>({});
+  const [bulkReviewModal, setBulkReviewModal] = useState(false);
+  const [submittingBulk, setSubmittingBulk] = useState(false);
 
-  // Modal: Assign Driver
-  const [assignModalVisible, setAssignModalVisible] = useState(false);
-  const [selectedTruck, setSelectedTruck] = useState<any>(null);
-  const [assigningDriverId, setAssigningDriverId] = useState<any>(null);
+  // Filter for requests
+  const [requestFilter, setRequestFilter] = useState<'ALL' | 'PENDING' | 'APPROVED' | 'COMPLETED' | 'REJECTED'>('ALL');
 
-  const [driverActionLoadingId, setDriverActionLoadingId] = useState<number | null>(null);
-  const [visiblePasswords, setVisiblePasswords] = useState<Record<number, boolean>>({});
-  const togglePasswordVisibility = (id: number) => {
-    setVisiblePasswords((prev) => ({ ...prev, [id]: !prev[id] }));
-  };
+  const loadData = useCallback(async (isRefresh = false) => {
+    if (isRefresh && refreshing) return;
+    if (isRefresh) setRefreshing(true);
+    else setLoading(true);
 
-  const loadData = useCallback(async () => {
     try {
       const user = await getUser();
       setCustomerUser(user);
 
-      const [trucksRes, driversRes, statsRes, reqRes] = await Promise.all([
+      const [trucksRes, statsRes, reqRes, pumpsRes] = await Promise.all([
         apiClient.get('/api/customer/trucks/').catch(() => ({ data: { trucks: [] } })),
-        apiClient.get('/api/customer/drivers/').catch(() => ({ data: { drivers: [] } })),
         apiClient.get('/api/customer/dashboard/').catch(() => ({ data: {} })),
         apiClient.get('/api/customer/fuel-requests/').catch(() => ({ data: { fuel_requests: [] } })),
+        apiClient.get('/api/pumps/').catch(() => ({ data: { pumps: [] } })),
       ]);
 
       const loadedTrucks = trucksRes.data?.trucks || [];
+      const loadedRequests = reqRes.data?.fuel_requests || [];
+      const loadedPumps = pumpsRes.data?.pumps || [];
+
       setTrucks(loadedTrucks);
-      setDrivers(driversRes.data?.drivers || []);
-      setRequests(reqRes.data?.fuel_requests || []);
+      setRequests(loadedRequests);
+      setPumps(loadedPumps);
+
+      if (loadedPumps.length > 0 && selectedPumpId === null) {
+        const userPumpId = user?.pump?.id;
+        const matchingPump = loadedPumps.find((p: any) => p.id === userPumpId);
+        setSelectedPumpId(matchingPump ? matchingPump.id : loadedPumps[0].id);
+      }
 
       if (statsRes.data?.stats) {
         setStats(statsRes.data.stats);
       } else {
-        const assigned = loadedTrucks.filter((t: any) => !!t.driver).length;
+        const eligibleCount = loadedTrucks.filter((t: any) => t.is_eligible_for_request).length;
         setStats({
           total_trucks: loadedTrucks.length,
-          assigned_trucks: assigned,
-          unassigned_trucks: loadedTrucks.length - assigned,
-          total_requests: reqRes.data?.fuel_requests?.length || 0,
+          active_trucks: loadedTrucks.filter((t: any) => t.is_active).length,
+          eligible_trucks: eligibleCount,
+          total_requests: loadedRequests.length,
+          pending_requests: loadedRequests.filter((r: any) => r.status === 'PENDING').length,
+          approved_requests: loadedRequests.filter((r: any) => r.status === 'APPROVED').length,
+          completed_requests: loadedRequests.filter((r: any) => r.status === 'COMPLETED').length,
+          rejected_requests: loadedRequests.filter((r: any) => r.status === 'REJECTED').length,
         });
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error loading customer dashboard:', error);
+      Alert.alert('Refresh Failed', 'Could not refresh latest data. Keeping current view.');
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, []);
+  }, [refreshing, selectedPumpId]);
 
   useEffect(() => {
     loadData();
-  }, [loadData]);
+  }, []);
 
   const onRefresh = () => {
-    setRefreshing(true);
-    loadData();
+    loadData(true);
   };
 
-  // Create Truck
+  // ── TRUCK MANAGEMENT ─────────────────────────────────────────
+
   const handleCreateTruck = async () => {
     const cleanNumber = newTruckNumber.trim().toUpperCase().replace(/\s+/g, '');
     if (!cleanNumber) {
-      Alert.alert('Missing Field', 'Please enter a truck plate number.');
+      Alert.alert('Missing Field', 'Please enter a truck registration number.');
       return;
     }
     const capacity = parseInt(newCapacity, 10);
@@ -149,6 +177,7 @@ export default function CustomerScreen() {
       Alert.alert('Invalid Capacity', 'Please enter a valid tank capacity in liters.');
       return;
     }
+
     setSubmittingTruck(true);
     try {
       await apiClient.post('/api/customer/trucks/create/', {
@@ -156,147 +185,70 @@ export default function CustomerScreen() {
         fuel_type: newFuelType,
         capacity_liters: capacity,
       });
-      Alert.alert('🚛 Truck Added!', `Truck ${cleanNumber} has been added to your fleet.`);
+      Alert.alert('🚛 Truck Registered', `Truck ${cleanNumber} has been successfully added to your fleet.`);
       setNewTruckNumber('');
       setAddTruckVisible(false);
       loadData();
     } catch (err: any) {
-      Alert.alert('Creation Failed', err?.response?.data?.error || err?.response?.data?.truck_number?.[0] || 'Failed to create truck.');
+      Alert.alert(
+        'Creation Failed',
+        err?.response?.data?.truck_number?.[0] || err?.response?.data?.error || 'Failed to create truck.'
+      );
     } finally {
       setSubmittingTruck(false);
     }
   };
 
-  // Create Driver with 8-digit numeric auto password
-  const handleCreateDriver = async () => {
-    const cleanMobile = drvMobile.replace(/\s+/g, '').replace(/[^0-9]/g, '');
-    const cleanName = drvName.trim();
+  const openEditTruckModal = (truck: any) => {
+    setEditingTruck(truck);
+    setEditFuelType(truck.fuel_type || 'DIESEL');
+    setEditCapacity(String(truck.capacity_liters || ''));
+    setEditIsActive(truck.is_active !== false);
+    setEditTruckVisible(true);
+  };
 
-    if (!cleanName || !cleanMobile) {
-      Alert.alert('Missing Fields', 'Please enter Driver Name and 10-digit Mobile Number.');
+  const handleUpdateTruck = async () => {
+    if (!editingTruck) return;
+    const capacity = parseInt(editCapacity, 10);
+    if (isNaN(capacity) || capacity <= 0) {
+      Alert.alert('Invalid Capacity', 'Please enter a valid tank capacity.');
       return;
     }
 
-    if (cleanMobile.length < 10) {
-      Alert.alert('Invalid Mobile', 'Mobile number must be at least 10 digits.');
-      return;
-    }
-
-    setSubmittingDriver(true);
+    setUpdatingTruck(true);
     try {
-      const res = await apiClient.post('/api/customer/drivers/create/', {
-        first_name: cleanName,
-        mobile_number: cleanMobile,
+      await apiClient.patch(`/api/trucks/${editingTruck.id}/update/`, {
+        fuel_type: editFuelType,
+        capacity_liters: capacity,
+        is_active: editIsActive,
       });
-
-      const genPassword = res.data?.generated_password;
-
-      setCreateDriverVisible(false);
-      setDrvName('');
-      setDrvMobile('');
-      loadData();
-
-      setCredModal({
-        visible: true,
-        title: 'Driver Account Created 🚚',
-        username: cleanMobile,
-        password: genPassword,
-        note: `System-generated 8-digit numeric password for ${cleanName}. They can log in with role 'DRIVER' using their mobile number. They will be prompted to set their own password on first login.`,
-      });
-    } catch (err: any) {
-      const msg =
-        err?.response?.data?.mobile_number?.[0] ||
-        err?.response?.data?.error ||
-        err?.response?.data?.message ||
-        'Failed to create driver.';
-      Alert.alert('Creation Failed', msg);
-    } finally {
-      setSubmittingDriver(false);
-    }
-  };
-
-  // Assign Driver to Truck
-  const openAssignModal = (truck: any) => {
-    setSelectedTruck(truck);
-    setAssignModalVisible(true);
-  };
-
-  const closeAssignModal = () => {
-    setAssignModalVisible(false);
-    setSelectedTruck(null);
-  };
-
-  const handleAssignDriver = async (driverId: any) => {
-    if (!selectedTruck) return;
-    setAssigningDriverId(driverId);
-    try {
-      const res = await apiClient.post(`/api/trucks/${selectedTruck.id}/assign-driver/`, { driver_id: driverId });
-      Alert.alert('✅ Driver Assigned', res.data?.message || 'Driver assigned successfully.');
-      closeAssignModal();
+      Alert.alert('Truck Updated', `Truck ${editingTruck.truck_number} updated successfully.`);
+      setEditTruckVisible(false);
+      setEditingTruck(null);
       loadData();
     } catch (err: any) {
-      Alert.alert('Assignment Failed', err?.response?.data?.error || err?.response?.data?.message || 'Failed to assign driver.');
+      Alert.alert('Update Failed', err?.response?.data?.error || 'Failed to update truck details.');
     } finally {
-      setAssigningDriverId(null);
+      setUpdatingTruck(false);
     }
   };
 
-  const handleToggleDriverStatus = (drv: any) => {
-    const isCurrentlyActive = drv.is_active !== false;
-    const actionText = isCurrentlyActive ? 'Deactivate' : 'Activate';
-    const drvName = drv.full_name || drv.first_name || drv.mobile_number;
-
+  const handleDeleteTruck = (truck: any) => {
     Alert.alert(
-      `${actionText} Driver ID`,
-      isCurrentlyActive
-        ? `Are you sure you want to deactivate Driver ${drvName}?\n\nThey will not be able to log in or request fuel, and any truck assigned to them will be unassigned.`
-        : `Activate Driver ${drvName}?\n\nThey will regain access to log in and request fuel.`,
+      'Delete Truck',
+      `Are you sure you want to delete Truck ${truck.truck_number} from your fleet?\n\nThis operation cannot be undone.`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
-          text: `${actionText} ID`,
-          style: isCurrentlyActive ? 'destructive' : 'default',
-          onPress: async () => {
-            setDriverActionLoadingId(drv.id);
-            try {
-              const res = await apiClient.patch(`/api/customer/drivers/${drv.id}/status/`, {
-                is_active: !isCurrentlyActive,
-              });
-              Alert.alert('Status Updated', res.data?.message || `Driver ${actionText.toLowerCase()}d successfully.`);
-              loadData();
-            } catch (err: any) {
-              Alert.alert('Action Failed', err?.response?.data?.error || `Failed to ${actionText.toLowerCase()} driver.`);
-            } finally {
-              setDriverActionLoadingId(null);
-            }
-          },
-        },
-      ]
-    );
-  };
-
-  const handleDeleteDriver = (drv: any) => {
-    const drvName = drv.full_name || drv.first_name || drv.mobile_number;
-    const empId = drv.employee_id || `ID #${drv.id}`;
-
-    Alert.alert(
-      'Delete Driver ID',
-      `Are you sure you want to delete Driver ${drvName} (${empId})?\n\nThis will remove their login access and unassign any truck linked to them.`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete Permanently',
+          text: 'Delete Truck',
           style: 'destructive',
           onPress: async () => {
-            setDriverActionLoadingId(drv.id);
             try {
-              const res = await apiClient.delete(`/api/customer/drivers/${drv.id}/delete/`);
-              Alert.alert('Driver Deleted', res.data?.message || 'Driver deleted successfully.');
+              await apiClient.delete(`/api/trucks/${truck.id}/delete/`);
+              Alert.alert('Deleted', `Truck ${truck.truck_number} has been deleted.`);
               loadData();
             } catch (err: any) {
-              Alert.alert('Delete Failed', err?.response?.data?.error || 'Failed to delete driver.');
-            } finally {
-              setDriverActionLoadingId(null);
+              Alert.alert('Delete Failed', err?.response?.data?.error || 'Could not delete truck.');
             }
           },
         },
@@ -304,31 +256,208 @@ export default function CustomerScreen() {
     );
   };
 
-  const statItems = [
-    { icon: 'bus', color: C.neon, bg: '#E0F2FE', label: t('fleet_trucks', 'Total Trucks'), val: stats.total_trucks },
-    { icon: 'person', color: C.green, bg: '#DCFCE7', label: t('drivers', 'Drivers'), val: drivers.length },
-    { icon: 'checkmark-circle', color: C.yellow, bg: '#FEF3C7', label: t('assigned', 'Assigned'), val: stats.assigned_trucks },
-    { icon: 'water', color: '#7C3AED', bg: '#EDE9FE', label: t('fuel_requests', 'Requests'), val: requests.length },
-  ];
+  // ── BULK REQUEST MANAGEMENT ──────────────────────────────────
+
+  const eligibleTrucks = useMemo(() => {
+    return trucks.filter((t) => t.is_eligible_for_request);
+  }, [trucks]);
+
+  const handleToggleTruckSelection = (truck: any) => {
+    if (!truck.is_eligible_for_request) {
+      Alert.alert(
+        'Truck Ineligible',
+        `Truck ${truck.truck_number} currently has an active request (${truck.active_request_number} - ${truck.active_request_status}).\n\nOnly trucks without pending/approved requests can be selected.`
+      );
+      return;
+    }
+
+    const tId = truck.id;
+    if (selectedTruckIds.includes(tId)) {
+      setSelectedTruckIds((prev) => prev.filter((id) => id !== tId));
+    } else {
+      setSelectedTruckIds((prev) => [...prev, tId]);
+      if (!truckLiters[tId]) {
+        setTruckLiters((prev) => ({
+          ...prev,
+          [tId]: String(truck.capacity_liters || '200'),
+        }));
+      }
+    }
+  };
+
+  const handleSelectAllEligible = () => {
+    const allEligibleIds = eligibleTrucks.map((t) => t.id);
+    setSelectedTruckIds(allEligibleIds);
+
+    const newLiters: Record<number, string> = { ...truckLiters };
+    eligibleTrucks.forEach((t) => {
+      if (!newLiters[t.id]) {
+        newLiters[t.id] = String(t.capacity_liters || '200');
+      }
+    });
+    setTruckLiters(newLiters);
+  };
+
+  const handleClearSelection = () => {
+    setSelectedTruckIds([]);
+  };
+
+  const handleQuickRequestTruck = (truck: any) => {
+    if (!truck.is_eligible_for_request) {
+      Alert.alert(
+        'Request Active',
+        `Truck ${truck.truck_number} already has an active request (${truck.active_request_number}).`
+      );
+      return;
+    }
+    setSelectedTruckIds([truck.id]);
+    setTruckLiters((prev) => ({
+      ...prev,
+      [truck.id]: String(truck.capacity_liters || '200'),
+    }));
+    setActiveTab('bulk_request');
+  };
+
+  const totalSelectedLiters = useMemo(() => {
+    return selectedTruckIds.reduce((sum, id) => {
+      const val = parseFloat(truckLiters[id] || '0');
+      return sum + (isNaN(val) ? 0 : val);
+    }, 0);
+  }, [selectedTruckIds, truckLiters]);
+
+  const handleOpenReviewModal = () => {
+    if (selectedTruckIds.length === 0) {
+      Alert.alert('No Trucks Selected', 'Please select at least one truck to submit a fuel request.');
+      return;
+    }
+    if (!selectedPumpId) {
+      Alert.alert('Select Station', 'Please choose a pump station where fuel will be dispensed.');
+      return;
+    }
+
+    for (const tId of selectedTruckIds) {
+      const trk = trucks.find((t) => t.id === tId);
+      const ltr = parseFloat(truckLiters[tId] || '0');
+      if (isNaN(ltr) || ltr <= 0) {
+        Alert.alert('Invalid Liters', `Please enter a valid requested fuel quantity for Truck ${trk?.truck_number}.`);
+        return;
+      }
+      if (trk?.capacity_liters && ltr > trk.capacity_liters) {
+        Alert.alert(
+          'Capacity Exceeded',
+          `Requested fuel for ${trk.truck_number} (${ltr}L) exceeds its tank capacity of ${trk.capacity_liters}L.`
+        );
+        return;
+      }
+    }
+
+    setBulkReviewModal(true);
+  };
+
+  const handleSubmitBulkRequests = async () => {
+    setSubmittingBulk(true);
+    try {
+      const items = selectedTruckIds.map((tId) => {
+        const trk = trucks.find((t) => t.id === tId);
+        return {
+          truck_id: tId,
+          requested_liters: parseFloat(truckLiters[tId] || String(trk?.capacity_liters || '200')),
+          fuel_type: trk?.fuel_type || 'DIESEL',
+          remarks: truckRemarks[tId] || 'Bulk dispatch fueling',
+        };
+      });
+
+      const response = await apiClient.post('/api/fuel-requests/bulk-create/', {
+        pump_id: selectedPumpId,
+        requests: items,
+      });
+
+      const createdCount = response.data?.count || items.length;
+      setBulkReviewModal(false);
+      setSelectedTruckIds([]);
+      setTruckLiters({});
+      setTruckRemarks({});
+
+      Alert.alert(
+        '🎉 Requests Created!',
+        `Successfully created ${createdCount} fuel request(s).\n\nOperators at the station can now verify and dispense fuel.`,
+        [
+          {
+            text: 'View Requests',
+            onPress: () => {
+              setActiveTab('requests');
+              loadData();
+            },
+          },
+        ]
+      );
+      loadData();
+    } catch (err: any) {
+      const errorDetail =
+        err?.response?.data?.errors?.join('\n') ||
+        err?.response?.data?.error ||
+        err?.response?.data?.message ||
+        'Failed to submit bulk request.';
+      Alert.alert('Submission Error', errorDetail);
+    } finally {
+      setSubmittingBulk(false);
+    }
+  };
+
+  const handleCancelPendingRequest = (reqItem: any) => {
+    Alert.alert(
+      'Cancel Fuel Request',
+      `Cancel pending request ${reqItem.request_number} for truck ${reqItem.truck_number}?`,
+      [
+        { text: 'Keep Request', style: 'cancel' },
+        {
+          text: 'Cancel Request',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await apiClient.delete(`/api/fuel-requests/${reqItem.id}/delete/`);
+              Alert.alert('Request Cancelled', `Request ${reqItem.request_number} has been deleted.`);
+              loadData();
+            } catch (e: any) {
+              Alert.alert('Action Failed', e?.response?.data?.error || 'Could not cancel request.');
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const filteredRequests = useMemo(() => {
+    if (requestFilter === 'ALL') return requests;
+    return requests.filter((r) => r.status === requestFilter);
+  }, [requests, requestFilter]);
+
+  const selectedPumpName = useMemo(() => {
+    const p = pumps.find((item) => item.id === selectedPumpId);
+    return p ? `${p.name} (${p.code})` : 'Select Station';
+  }, [pumps, selectedPumpId]);
 
   return (
     <View style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
 
-      {/* ── Header ── */}
+      {/* ── App Bar ── */}
       <View style={styles.headerContainer}>
         <View style={styles.neonBar} />
-
         <View style={styles.headerRow}>
           <View>
             <View style={styles.rolePill}>
               <Ionicons name="shield-checkmark" size={11} color={C.primary} style={{ marginRight: 4 }} />
-              <Text style={styles.rolePillText}>{t('truck_owner_customer', 'TRUCK OWNER • FLEET')}</Text>
+              <Text style={styles.rolePillText}>TRUCK OWNER • FLEET CONSOLE</Text>
             </View>
-            <Text style={styles.headerName}>{customerUser?.name || customerUser?.first_name || 'Fleet Owner'}</Text>
-            <Text style={styles.headerSub}>Manage your commercial fleet & driver assignments</Text>
+            <Text style={styles.headerName}>{customerUser?.name || customerUser?.first_name || 'Truck Owner'}</Text>
+            <Text style={styles.headerSub}>Manage trucks & create multi-truck fuel requests</Text>
           </View>
-          <TouchableOpacity style={styles.avatarBtn} onPress={() => router.push('/customer-profile' as any)} activeOpacity={0.8}>
+          <TouchableOpacity
+            style={styles.avatarBtn}
+            onPress={() => router.push('/customer-profile' as any)}
+            activeOpacity={0.8}
+          >
             <View style={styles.avatar}>
               <Text style={styles.avatarText}>{(customerUser?.name || 'T').charAt(0).toUpperCase()}</Text>
             </View>
@@ -338,49 +467,81 @@ export default function CustomerScreen() {
 
       <ScrollView
         contentContainerStyle={styles.scrollContent}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[C.neon]} tintColor={C.neon} />}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            colors={[C.primary]}
+            tintColor={C.primary}
+          />
+        }
         showsVerticalScrollIndicator={false}
       >
-        {/* ── Stats Grid ── */}
+        {/* ── KPI Metrics Grid ── */}
         <View style={styles.statsGrid}>
-          {statItems.map((s) => (
-            <View key={s.label} style={styles.statCard}>
-              <View style={[styles.statIcon, { backgroundColor: s.bg }]}>
-                <Ionicons name={s.icon as any} size={20} color={s.color} />
-              </View>
-              <Text style={[styles.statVal, { color: s.color }]}>{s.val}</Text>
-              <Text style={styles.statLabel}>{s.label}</Text>
+          <View style={styles.statCard}>
+            <View style={[styles.statIcon, { backgroundColor: '#E0F2FE' }]}>
+              <Ionicons name="bus" size={20} color={C.primary} />
             </View>
-          ))}
+            <Text style={[styles.statVal, { color: C.primary }]}>{stats.total_trucks}</Text>
+            <Text style={styles.statLabel}>Total Trucks</Text>
+          </View>
+
+          <View style={styles.statCard}>
+            <View style={[styles.statIcon, { backgroundColor: C.greenLight }]}>
+              <Ionicons name="checkmark-done" size={20} color={C.green} />
+            </View>
+            <Text style={[styles.statVal, { color: C.green }]}>{stats.eligible_trucks}</Text>
+            <Text style={styles.statLabel}>Eligible Trucks</Text>
+          </View>
+
+          <View style={styles.statCard}>
+            <View style={[styles.statIcon, { backgroundColor: C.yellowLight }]}>
+              <Ionicons name="time" size={20} color={C.yellow} />
+            </View>
+            <Text style={[styles.statVal, { color: C.yellow }]}>{stats.pending_requests}</Text>
+            <Text style={styles.statLabel}>Pending</Text>
+          </View>
+
+          <View style={styles.statCard}>
+            <View style={[styles.statIcon, { backgroundColor: '#EDE9FE' }]}>
+              <Ionicons name="receipt" size={20} color="#7C3AED" />
+            </View>
+            <Text style={[styles.statVal, { color: '#7C3AED' }]}>{stats.total_requests}</Text>
+            <Text style={styles.statLabel}>Total Requests</Text>
+          </View>
         </View>
 
         {/* ── Quick Action Buttons ── */}
         <View style={styles.actionRow}>
           <TouchableOpacity
-            style={[styles.actionBtn, { backgroundColor: 'rgba(21,101,192,0.22)', borderColor: C.primary }]}
+            style={[styles.actionBtn, { backgroundColor: 'rgba(2,132,199,0.12)', borderColor: C.primary }]}
             onPress={() => setAddTruckVisible(true)}
             activeOpacity={0.85}
           >
-            <Ionicons name="add-circle" size={18} color={C.neon} style={{ marginRight: 6 }} />
-            <Text style={[styles.actionBtnText, { color: C.neon }]}>+ {t('add_truck', 'Add Truck')}</Text>
+            <Ionicons name="add-circle" size={18} color={C.primary} style={{ marginRight: 6 }} />
+            <Text style={[styles.actionBtnText, { color: C.primary }]}>+ Add New Truck</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
-            style={[styles.actionBtn, { backgroundColor: 'rgba(0,200,83,0.15)', borderColor: 'rgba(0,200,83,0.5)' }]}
-            onPress={() => setCreateDriverVisible(true)}
+            style={[styles.actionBtn, { backgroundColor: C.greenLight, borderColor: 'rgba(22,163,74,0.4)' }]}
+            onPress={() => {
+              handleSelectAllEligible();
+              setActiveTab('bulk_request');
+            }}
             activeOpacity={0.85}
           >
-            <Ionicons name="person-add" size={18} color={C.green} style={{ marginRight: 6 }} />
-            <Text style={[styles.actionBtnText, { color: C.green }]}>+ {t('add_driver', 'Add Driver')}</Text>
+            <Ionicons name="flash" size={18} color={C.green} style={{ marginRight: 6 }} />
+            <Text style={[styles.actionBtnText, { color: C.green }]}>⚡ Bulk Request Fuel</Text>
           </TouchableOpacity>
         </View>
 
-        {/* ── Tab Bar ── */}
+        {/* ── Modern Navigation Tabs ── */}
         <View style={styles.tabBar}>
           {[
-            { key: 'trucks',   icon: 'bus',            label: `${t('fleet_trucks', 'Trucks')} (${trucks.length})` },
-            { key: 'drivers',  icon: 'people-outline', label: `${t('drivers', 'Drivers')} (${drivers.length})` },
-            { key: 'requests', icon: 'receipt-outline', label: `${t('fuel_requests', 'Requests')} (${requests.length})` },
+            { key: 'trucks', icon: 'bus', label: `My Trucks (${trucks.length})` },
+            { key: 'bulk_request', icon: 'checkbox-outline', label: `Bulk Request (${selectedTruckIds.length})` },
+            { key: 'requests', icon: 'receipt-outline', label: `Requests (${requests.length})` },
           ].map((tab) => (
             <TouchableOpacity
               key={tab.key}
@@ -391,7 +552,7 @@ export default function CustomerScreen() {
               <Ionicons
                 name={tab.icon as any}
                 size={14}
-                color={activeTab === tab.key ? C.night : C.textMuted}
+                color={activeTab === tab.key ? C.white : C.textMuted}
                 style={{ marginRight: 4 }}
               />
               <Text style={[styles.tabText, activeTab === tab.key && styles.tabTextActive]}>
@@ -401,251 +562,373 @@ export default function CustomerScreen() {
           ))}
         </View>
 
-        {/* ──────────── TAB 1: FLEET TRUCKS ──────────── */}
+        {/* ══════════════════════════════════════════════════════════
+            TAB 1: TRUCK MANAGEMENT
+        ══════════════════════════════════════════════════════════ */}
         {activeTab === 'trucks' && (
           <View>
             {loading && !refreshing ? (
-              <View style={styles.centerBox}><ActivityIndicator size="large" color={C.neon} /></View>
+              <View style={styles.centerBox}><ActivityIndicator size="large" color={C.primary} /></View>
             ) : trucks.length === 0 ? (
               <View style={styles.emptyCard}>
                 <Ionicons name="bus-outline" size={48} color={C.textMuted} />
-                <Text style={styles.emptyTitle}>No Trucks in Fleet</Text>
-                <Text style={styles.emptySubtitle}>Click "+ Add Truck" above to register your vehicle.</Text>
+                <Text style={styles.emptyTitle}>No Trucks in Your Fleet</Text>
+                <Text style={styles.emptySubtitle}>Click "+ Add New Truck" above to register your commercial vehicles.</Text>
               </View>
             ) : (
-              trucks.map((truck) => (
-                <View key={truck.id} style={styles.truckCard}>
-                  <View style={[styles.truckAccent, truck.fuel_type === 'DIESEL' ? { backgroundColor: C.neon } : { backgroundColor: C.yellow }]} />
+              trucks.map((truck) => {
+                const isEligible = truck.is_eligible_for_request;
+                return (
+                  <View key={truck.id} style={styles.truckCard}>
+                    <View
+                      style={[
+                        styles.truckAccent,
+                        truck.fuel_type === 'DIESEL' ? { backgroundColor: C.primary } : { backgroundColor: C.yellow },
+                      ]}
+                    />
 
-                  <View style={styles.truckHeaderRow}>
-                    <View style={styles.plateBox}>
-                      <View style={styles.plateBlue}><Text style={styles.plateBlueTxt}>IND</Text></View>
-                      <Text style={styles.plateNum}>{truck.truck_number}</Text>
-                    </View>
-                    <View style={[styles.fuelBadge, { backgroundColor: truck.fuel_type === 'DIESEL' ? 'rgba(0,184,255,0.12)' : 'rgba(255,201,40,0.12)', borderColor: truck.fuel_type === 'DIESEL' ? 'rgba(0,184,255,0.3)' : 'rgba(255,201,40,0.3)' }]}>
-                      <Ionicons name="water" size={11} color={truck.fuel_type === 'DIESEL' ? C.neon : C.yellow} style={{ marginRight: 4 }} />
-                      <Text style={[styles.fuelBadgeText, { color: truck.fuel_type === 'DIESEL' ? C.neon : C.yellow }]}>
-                        {truck.fuel_type} · {truck.capacity_liters || 0}L
-                      </Text>
-                    </View>
-                  </View>
-
-                  <View style={styles.driverSection}>
-                    {truck.driver ? (
-                      <View style={styles.driverRow}>
-                        <View style={styles.driverAvatar}>
-                          <Ionicons name="person" size={16} color={C.green} />
-                        </View>
-                        <View style={{ flex: 1 }}>
-                          <Text style={styles.driverLabel}>Assigned Driver</Text>
-                          <Text style={styles.driverName}>{truck.driver_name} {truck.driver_mobile ? `· ${truck.driver_mobile}` : ''}</Text>
-                        </View>
-                        <TouchableOpacity style={styles.changeDrvBtn} onPress={() => openAssignModal(truck)} activeOpacity={0.8}>
-                          <Text style={styles.changeDrvText}>Change</Text>
-                        </TouchableOpacity>
+                    {/* Top Row: Plate & Fuel */}
+                    <View style={styles.truckHeaderRow}>
+                      <View style={styles.plateBox}>
+                        <View style={styles.plateBlue}><Text style={styles.plateBlueTxt}>IND</Text></View>
+                        <Text style={styles.plateNum}>{truck.truck_number}</Text>
                       </View>
-                    ) : (
-                      <View style={styles.driverRow}>
-                        <View style={[styles.driverAvatar, { backgroundColor: 'rgba(255,201,40,0.1)', borderColor: 'rgba(255,201,40,0.3)' }]}>
-                          <Ionicons name="alert" size={16} color={C.yellow} />
-                        </View>
-                        <View style={{ flex: 1 }}>
-                          <Text style={[styles.driverLabel, { color: C.yellow }]}>No Driver Assigned</Text>
-                          <Text style={styles.driverName}>Assign one of your drivers</Text>
-                        </View>
-                        <TouchableOpacity style={[styles.changeDrvBtn, { backgroundColor: C.yellow }]} onPress={() => openAssignModal(truck)} activeOpacity={0.85}>
-                          <Text style={[styles.changeDrvText, { color: C.night }]}>Assign</Text>
-                        </TouchableOpacity>
-                      </View>
-                    )}
-                  </View>
-                </View>
-              ))
-            )}
-          </View>
-        )}
 
-        {/* ──────────── TAB 2: DRIVERS ──────────── */}
-        {activeTab === 'drivers' && (
-          <View>
-            {loading && !refreshing ? (
-              <View style={styles.centerBox}><ActivityIndicator size="large" color={C.neon} /></View>
-            ) : drivers.length === 0 ? (
-              <View style={styles.emptyCard}>
-                <Ionicons name="people-outline" size={48} color={C.textMuted} />
-                <Text style={styles.emptyTitle}>No Drivers Added</Text>
-                <Text style={styles.emptySubtitle}>Click "+ Add Driver" to create a driver with an auto-generated password.</Text>
-              </View>
-            ) : (
-              drivers.map((drv) => (
-                <View key={drv.id} style={styles.truckCard}>
-                  <View style={[styles.truckAccent, { backgroundColor: drv.is_active !== false ? C.green : C.red }]} />
-                  <View style={styles.driverCardHeader}>
-                    <View style={[styles.driverAvatarWrap, { borderColor: drv.is_active !== false ? '#86EFAC' : '#FECACA', backgroundColor: drv.is_active !== false ? '#DCFCE7' : '#FEE2E2' }]}>
-                      <Text style={[styles.driverAvatarTxt, { color: drv.is_active !== false ? C.green : C.red }]}>
-                        {(drv.first_name || 'D').charAt(0).toUpperCase()}
-                      </Text>
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.driverHeaderName}>{drv.full_name || drv.first_name}</Text>
-                      <Text style={styles.driverEmpId}>ID: {drv.employee_id || `DRIV${drv.id}`}</Text>
-                    </View>
-
-                    {/* Status Pill Badge */}
-                    <View style={[styles.statusPill, drv.is_active !== false ? styles.activePillBg : styles.inactivePillBg]}>
-                      <View style={[styles.statusDot, drv.is_active !== false ? styles.activeDotBg : styles.inactiveDotBg]} />
-                      <Text style={[styles.statusPillText, drv.is_active !== false ? styles.activePillText : styles.inactivePillText]}>
-                        {drv.is_active !== false ? 'ACTIVE' : 'DEACTIVATED'}
-                      </Text>
-                    </View>
-                  </View>
-
-                  {/* ── Driver Credentials & Assignment Box ── */}
-                  <View style={styles.drvCredContainer}>
-                    <View style={styles.drvCredRow}>
-                      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                        <Ionicons name="call-outline" size={13} color={C.neon} style={{ marginRight: 6 }} />
-                        <Text style={styles.drvCredLabel}>Login ID (Mobile):</Text>
-                      </View>
-                      <Text style={styles.drvCredVal}>{drv.mobile_number || '—'}</Text>
-                    </View>
-
-                    <View style={[styles.drvCredRow, { marginTop: 6 }]}>
-                      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                        <Ionicons name="key-outline" size={13} color={C.yellow} style={{ marginRight: 6 }} />
-                        <Text style={styles.drvCredLabel}>Password:</Text>
-                      </View>
-                      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                        {drv.password ? (
-                          <>
-                            <Text style={[styles.drvCredVal, { color: C.yellow, marginRight: 6, letterSpacing: visiblePasswords[drv.id] ? 0.5 : 2 }]}>
-                              {visiblePasswords[drv.id] ? drv.password : '••••••••'}
-                            </Text>
-                            <View style={{ backgroundColor: 'rgba(217, 119, 6, 0.15)', paddingHorizontal: 5, paddingVertical: 2, borderRadius: 4, marginRight: 8 }}>
-                              <Text style={{ fontSize: 9, color: C.yellow, fontWeight: '800' }}>TEMP</Text>
-                            </View>
-                            <TouchableOpacity onPress={() => togglePasswordVisibility(drv.id)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                              <Ionicons
-                                name={visiblePasswords[drv.id] ? "eye-off-outline" : "eye-outline"}
-                                size={16}
-                                color={C.textSub}
-                              />
-                            </TouchableOpacity>
-                          </>
-                        ) : (
-                          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                            <Ionicons name="lock-closed" size={12} color={C.green} style={{ marginRight: 4 }} />
-                            <Text style={[styles.drvCredVal, { color: C.textMuted, fontSize: 12, fontStyle: 'italic' }]}>
-                              Set by Driver
-                            </Text>
-                          </View>
-                        )}
-                      </View>
-                    </View>
-
-                    <View style={[styles.drvCredRow, { marginTop: 6 }]}>
-                      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                        <Ionicons name="bus-outline" size={13} color={C.primary} style={{ marginRight: 6 }} />
-                        <Text style={styles.drvCredLabel}>Assigned Truck:</Text>
-                      </View>
-                      <View style={[styles.assignedStatusBadge, drv.is_assigned ? { borderColor: 'rgba(0,200,83,0.4)', backgroundColor: 'rgba(0,200,83,0.12)' } : { borderColor: 'rgba(255,201,40,0.4)', backgroundColor: 'rgba(255,201,40,0.12)' }]}>
-                        <Text style={[styles.assignedStatusTxt, drv.is_assigned ? { color: C.green } : { color: C.yellow }]}>
-                          {drv.is_assigned ? drv.assigned_truck_number : 'Unassigned'}
+                      <View
+                        style={[
+                          styles.fuelBadge,
+                          {
+                            backgroundColor: truck.fuel_type === 'DIESEL' ? '#E0F2FE' : '#FEF3C7',
+                            borderColor: truck.fuel_type === 'DIESEL' ? '#BAE6FD' : '#FDE68A',
+                          },
+                        ]}
+                      >
+                        <Ionicons
+                          name="water"
+                          size={11}
+                          color={truck.fuel_type === 'DIESEL' ? C.primary : C.yellow}
+                          style={{ marginRight: 4 }}
+                        />
+                        <Text style={[styles.fuelBadgeText, { color: truck.fuel_type === 'DIESEL' ? C.primary : C.yellow }]}>
+                          {truck.fuel_type} · {truck.capacity_liters || 0}L
                         </Text>
                       </View>
                     </View>
-                  </View>
 
-                  {/* ── Action Buttons Row: Activate / Deactivate & Delete ── */}
-                  <View style={styles.cardActionRow}>
-                    <TouchableOpacity
-                      style={[
-                        styles.drvActionBtn,
-                        drv.is_active !== false ? styles.deactivateBtn : styles.activateBtn
-                      ]}
-                      onPress={() => handleToggleDriverStatus(drv)}
-                      disabled={driverActionLoadingId === drv.id}
-                      activeOpacity={0.8}
-                    >
-                      {driverActionLoadingId === drv.id ? (
-                        <ActivityIndicator size="small" color={drv.is_active !== false ? '#B45309' : C.green} />
+                    {/* Eligibility & Status Row */}
+                    <View style={styles.statusRow}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                        <View style={[styles.dot, { backgroundColor: truck.is_active ? C.green : C.red }]} />
+                        <Text style={styles.statusText}>{truck.is_active ? 'Active Fleet' : 'Inactive'}</Text>
+                      </View>
+
+                      {isEligible ? (
+                        <View style={styles.eligiblePill}>
+                          <Ionicons name="checkmark-circle" size={12} color={C.green} style={{ marginRight: 3 }} />
+                          <Text style={styles.eligiblePillText}>Ready for Fuel</Text>
+                        </View>
                       ) : (
-                        <>
-                          <Ionicons
-                            name={drv.is_active !== false ? "pause-circle-outline" : "checkmark-circle-outline"}
-                            size={15}
-                            color={drv.is_active !== false ? '#B45309' : C.green}
-                            style={{ marginRight: 5 }}
-                          />
-                          <Text style={[styles.drvActionBtnText, drv.is_active !== false ? { color: '#B45309' } : { color: C.green }]}>
-                            {drv.is_active !== false ? 'Deactivate ID' : 'Activate ID'}
+                        <View style={styles.ineligiblePill}>
+                          <Ionicons name="time" size={12} color={C.yellow} style={{ marginRight: 3 }} />
+                          <Text style={styles.ineligiblePillText}>
+                            Active: {truck.active_request_number || 'Req Pending'} ({truck.active_request_status || 'Pending'})
                           </Text>
-                        </>
+                        </View>
                       )}
-                    </TouchableOpacity>
+                    </View>
 
-                    <TouchableOpacity
-                      style={[styles.drvActionBtn, styles.deleteBtn]}
-                      onPress={() => handleDeleteDriver(drv)}
-                      disabled={driverActionLoadingId === drv.id}
-                      activeOpacity={0.8}
-                    >
-                      <Ionicons name="trash-outline" size={15} color={C.red} style={{ marginRight: 5 }} />
-                      <Text style={[styles.drvActionBtnText, { color: C.red }]}>Delete ID</Text>
-                    </TouchableOpacity>
+                    {/* Card Actions */}
+                    <View style={styles.cardActionsRow}>
+                      {isEligible ? (
+                        <TouchableOpacity
+                          style={styles.requestQuickBtn}
+                          onPress={() => handleQuickRequestTruck(truck)}
+                          activeOpacity={0.8}
+                        >
+                          <Ionicons name="flash" size={13} color={C.white} style={{ marginRight: 4 }} />
+                          <Text style={styles.requestQuickText}>Request Fuel</Text>
+                        </TouchableOpacity>
+                      ) : (
+                        <TouchableOpacity
+                          style={styles.viewReqBtn}
+                          onPress={() => {
+                            setRequestFilter('ALL');
+                            setActiveTab('requests');
+                          }}
+                          activeOpacity={0.8}
+                        >
+                          <Ionicons name="eye-outline" size={13} color={C.yellow} style={{ marginRight: 4 }} />
+                          <Text style={styles.viewReqText}>View Request</Text>
+                        </TouchableOpacity>
+                      )}
+
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                        <TouchableOpacity
+                          style={styles.actionIconBtn}
+                          onPress={() => openEditTruckModal(truck)}
+                          activeOpacity={0.8}
+                        >
+                          <Ionicons name="pencil" size={15} color={C.primary} />
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                          style={[styles.actionIconBtn, { borderColor: C.redLight }]}
+                          onPress={() => handleDeleteTruck(truck)}
+                          activeOpacity={0.8}
+                        >
+                          <Ionicons name="trash-outline" size={15} color={C.red} />
+                        </TouchableOpacity>
+                      </View>
+                    </View>
                   </View>
-                </View>
-              ))
+                );
+              })
             )}
           </View>
         )}
 
-        {/* ──────────── TAB 3: FUEL REQUESTS ──────────── */}
-        {activeTab === 'requests' && (
+        {/* ══════════════════════════════════════════════════════════
+            TAB 2: BULK REQUEST CREATION
+        ══════════════════════════════════════════════════════════ */}
+        {activeTab === 'bulk_request' && (
           <View>
-            {requests.length === 0 ? (
+            {/* Station Selection Box */}
+            <View style={styles.sectionCard}>
+              <Text style={styles.fieldLabel}>DISPENSING FUEL STATION *</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 8 }}>
+                {pumps.map((p) => {
+                  const isSelected = selectedPumpId === p.id;
+                  return (
+                    <TouchableOpacity
+                      key={p.id}
+                      style={[styles.pumpChip, isSelected && styles.pumpChipSelected]}
+                      onPress={() => setSelectedPumpId(p.id)}
+                    >
+                      <Ionicons
+                        name="location"
+                        size={14}
+                        color={isSelected ? C.white : C.primary}
+                        style={{ marginRight: 5 }}
+                      />
+                      <Text style={[styles.pumpChipText, isSelected && styles.pumpChipTextSelected]}>
+                        {p.name} ({p.code})
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+            </View>
+
+            {/* Selection Controls */}
+            <View style={styles.selectionBar}>
+              <View>
+                <Text style={styles.selectionCount}>
+                  {selectedTruckIds.length} of {eligibleTrucks.length} Eligible Selected
+                </Text>
+                <Text style={styles.selectionLiters}>Total: {totalSelectedLiters.toLocaleString()} Liters</Text>
+              </View>
+
+              <View style={{ flexDirection: 'row', gap: 6 }}>
+                <TouchableOpacity style={styles.selBtn} onPress={handleSelectAllEligible}>
+                  <Text style={styles.selBtnText}>Select All</Text>
+                </TouchableOpacity>
+
+                {selectedTruckIds.length > 0 && (
+                  <TouchableOpacity style={[styles.selBtn, { backgroundColor: '#F1F5F9' }]} onPress={handleClearSelection}>
+                    <Text style={[styles.selBtnText, { color: C.textSub }]}>Clear</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            </View>
+
+            {/* Truck Checklist */}
+            {trucks.length === 0 ? (
               <View style={styles.emptyCard}>
-                <Ionicons name="receipt-outline" size={48} color={C.textMuted} />
-                <Text style={styles.emptyTitle}>No Fuel Requests Yet</Text>
-                <Text style={styles.emptySubtitle}>When your drivers submit fuel requests at pump stations, logs appear here.</Text>
+                <Ionicons name="bus-outline" size={40} color={C.textMuted} />
+                <Text style={styles.emptyTitle}>No Trucks Available</Text>
+                <Text style={styles.emptySubtitle}>Please register trucks in the "My Trucks" tab first.</Text>
               </View>
             ) : (
-              requests.map((item) => {
-                const s = STATUS_MAP[item.status] || STATUS_MAP.PENDING;
+              trucks.map((truck) => {
+                const isSelected = selectedTruckIds.includes(truck.id);
+                const isEligible = truck.is_eligible_for_request;
+
                 return (
-                  <View key={item.id} style={styles.reqCard}>
-                    <View style={styles.reqCardHeader}>
-                      <View style={{ flex: 1 }}>
-                        <Text style={styles.reqNumber}>{item.request_number || `REQ-${item.id}`}</Text>
-                        <Text style={styles.reqTruckPlate}>{item.truck_number || 'Truck'}</Text>
+                  <View
+                    key={truck.id}
+                    style={[
+                      styles.bulkTruckCard,
+                      isSelected && styles.bulkTruckCardSelected,
+                      !isEligible && styles.bulkTruckCardDisabled,
+                    ]}
+                  >
+                    <View style={styles.bulkTopRow}>
+                      <TouchableOpacity
+                        style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}
+                        onPress={() => handleToggleTruckSelection(truck)}
+                        activeOpacity={0.7}
+                      >
+                        <View style={[styles.checkbox, isSelected && styles.checkboxSelected, !isEligible && styles.checkboxDisabled]}>
+                          {isSelected && <Ionicons name="checkmark" size={14} color={C.white} />}
+                        </View>
+
+                        <View style={{ marginLeft: 10 }}>
+                          <View style={styles.plateBoxSm}>
+                            <View style={styles.plateBlueSm}><Text style={styles.plateBlueTxtSm}>IND</Text></View>
+                            <Text style={styles.plateNumSm}>{truck.truck_number}</Text>
+                          </View>
+                          <Text style={styles.fuelSubText}>
+                            {truck.fuel_type} · Tank Cap: {truck.capacity_liters}L
+                          </Text>
+                        </View>
+                      </TouchableOpacity>
+
+                      {isEligible ? (
+                        <View style={styles.eligiblePillSm}>
+                          <Text style={styles.eligiblePillTextSm}>Eligible</Text>
+                        </View>
+                      ) : (
+                        <View style={styles.ineligiblePillSm}>
+                          <Text style={styles.ineligiblePillTextSm}>Active Req: {truck.active_request_number}</Text>
+                        </View>
+                      )}
+                    </View>
+
+                    {/* Quantity & Remarks inputs shown if selected */}
+                    {isSelected && (
+                      <View style={styles.selectedInputsRow}>
+                        <View style={{ flex: 1, marginRight: 10 }}>
+                          <Text style={styles.inputLabelSm}>LITERS TO DISPENSE (MAX {truck.capacity_liters}L)</Text>
+                          <TextInput
+                            style={styles.inputSm}
+                            keyboardType="numeric"
+                            value={truckLiters[truck.id] || ''}
+                            onChangeText={(text) =>
+                              setTruckLiters((prev) => ({ ...prev, [truck.id]: text }))
+                            }
+                            placeholder="Liters"
+                          />
+                        </View>
+
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.inputLabelSm}>TRIP / REMARKS (OPTIONAL)</Text>
+                          <TextInput
+                            style={styles.inputSm}
+                            value={truckRemarks[truck.id] || ''}
+                            onChangeText={(text) =>
+                              setTruckRemarks((prev) => ({ ...prev, [truck.id]: text }))
+                            }
+                            placeholder="e.g. Pune Highway"
+                          />
+                        </View>
                       </View>
-                      <View style={[styles.reqStatusBadge, { backgroundColor: s.bg }]}>
-                        <Text style={[styles.reqStatusText, { color: s.text }]}>{item.status}</Text>
+                    )}
+                  </View>
+                );
+              })
+            )}
+
+            {/* Submit Action Button */}
+            {selectedTruckIds.length > 0 && (
+              <TouchableOpacity
+                style={styles.submitBulkBtn}
+                onPress={handleOpenReviewModal}
+                activeOpacity={0.88}
+              >
+                <Ionicons name="checkmark-done" size={20} color={C.white} style={{ marginRight: 8 }} />
+                <Text style={styles.submitBulkBtnText}>
+                  Review & Submit ({selectedTruckIds.length} Trucks · {totalSelectedLiters} L)
+                </Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        )}
+
+        {/* ══════════════════════════════════════════════════════════
+            TAB 3: REQUESTS HISTORY
+        ══════════════════════════════════════════════════════════ */}
+        {activeTab === 'requests' && (
+          <View>
+            {/* Filter Pills */}
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 12 }}>
+              {(['ALL', 'PENDING', 'APPROVED', 'COMPLETED', 'REJECTED'] as const).map((st) => (
+                <TouchableOpacity
+                  key={st}
+                  style={[styles.filterChip, requestFilter === st && styles.filterChipActive]}
+                  onPress={() => setRequestFilter(st)}
+                >
+                  <Text style={[styles.filterChipText, requestFilter === st && styles.filterChipTextActive]}>
+                    {st === 'ALL' ? `All Requests (${requests.length})` : `${st}`}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+
+            {filteredRequests.length === 0 ? (
+              <View style={styles.emptyCard}>
+                <Ionicons name="receipt-outline" size={40} color={C.textMuted} />
+                <Text style={styles.emptyTitle}>No Requests Found</Text>
+                <Text style={styles.emptySubtitle}>No requests match the selected status filter.</Text>
+              </View>
+            ) : (
+              filteredRequests.map((req) => {
+                const badge = STATUS_MAP[req.status] || STATUS_MAP.PENDING;
+                return (
+                  <View key={req.id} style={styles.requestCard}>
+                    <View style={styles.reqTopRow}>
+                      <View>
+                        <Text style={styles.reqNum}>{req.request_number}</Text>
+                        <Text style={styles.reqDate}>{req.created_at ? new Date(req.created_at).toLocaleString() : ''}</Text>
+                      </View>
+
+                      <View style={[styles.statusBadge, { backgroundColor: badge.bg }]}>
+                        <Ionicons name={badge.icon} size={12} color={badge.text} style={{ marginRight: 4 }} />
+                        <Text style={[styles.statusBadgeText, { color: badge.text }]}>{req.status}</Text>
                       </View>
                     </View>
+
+                    <View style={styles.reqDivider} />
 
                     <View style={styles.reqDetailsRow}>
-                      <View style={styles.reqDetailItem}>
-                        <Text style={styles.reqDetailLabel}>Fuel</Text>
-                        <Text style={styles.reqDetailVal}>{item.fuel_type}</Text>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.reqDetailLabel}>TRUCK</Text>
+                        <View style={styles.plateBoxSm}>
+                          <View style={styles.plateBlueSm}><Text style={styles.plateBlueTxtSm}>IND</Text></View>
+                          <Text style={styles.plateNumSm}>{req.truck_number}</Text>
+                        </View>
                       </View>
-                      <View style={styles.reqDetailItem}>
-                        <Text style={styles.reqDetailLabel}>Requested</Text>
-                        <Text style={[styles.reqDetailVal, { color: C.yellow }]}>{item.requested_liters} L</Text>
+
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.reqDetailLabel}>FUEL & VOLUME</Text>
+                        <Text style={styles.reqVolume}>
+                          {req.approved_liters || req.requested_liters} L ({req.fuel_type})
+                        </Text>
                       </View>
-                      <View style={styles.reqDetailItem}>
-                        <Text style={styles.reqDetailLabel}>Approved</Text>
-                        <Text style={[styles.reqDetailVal, { color: C.neon }]}>{item.approved_liters ? `${item.approved_liters} L` : '—'}</Text>
+
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.reqDetailLabel}>STATION</Text>
+                        <Text style={styles.reqStation} numberOfLines={1}>{req.pump_name || 'Station'}</Text>
                       </View>
                     </View>
 
-                    <View style={styles.reqFooter}>
-                      <Ionicons name="person-outline" size={12} color={C.textMuted} style={{ marginRight: 4 }} />
-                      <Text style={styles.reqFooterText}>Driver: {item.driver_name || 'Assigned'}</Text>
-                      <Text style={styles.reqFooterDot}>•</Text>
-                      <Ionicons name="business-outline" size={12} color={C.textMuted} style={{ marginRight: 4 }} />
-                      <Text style={styles.reqFooterText}>{item.pump_name || 'Station'}</Text>
-                    </View>
+                    {req.remarks ? (
+                      <View style={styles.remarksRow}>
+                        <Ionicons name="chatbox-ellipses-outline" size={12} color={C.textMuted} style={{ marginRight: 4 }} />
+                        <Text style={styles.remarksText} numberOfLines={2}>{req.remarks}</Text>
+                      </View>
+                    ) : null}
+
+                    {req.status === 'PENDING' && (
+                      <View style={{ marginTop: 10, alignItems: 'flex-end' }}>
+                        <TouchableOpacity
+                          style={styles.cancelReqBtn}
+                          onPress={() => handleCancelPendingRequest(req)}
+                        >
+                          <Ionicons name="close-circle-outline" size={13} color={C.red} style={{ marginRight: 4 }} />
+                          <Text style={styles.cancelReqText}>Cancel Request</Text>
+                        </TouchableOpacity>
+                      </View>
+                    )}
                   </View>
                 );
               })
@@ -654,184 +937,216 @@ export default function CustomerScreen() {
         )}
       </ScrollView>
 
-      {/* ── Modal 1: Add Truck ── */}
-      <Modal visible={addTruckVisible} transparent animationType="slide" onRequestClose={() => setAddTruckVisible(false)}>
-        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.modalOverlay}>
-          <View style={styles.modalSheet}>
-            <View style={styles.modalHandle} />
-            <Text style={styles.modalTitle}>Add Truck to Fleet</Text>
-            <Text style={styles.modalSubtitle}>Register a commercial transport vehicle under your account</Text>
-
-            <View style={styles.modalInputGroup}>
-              <Text style={styles.inputLabel}>TRUCK PLATE NUMBER</Text>
-              <TextInput
-                style={styles.textInput}
-                placeholder="e.g. MH12AB1234"
-                placeholderTextColor={C.textMuted}
-                value={newTruckNumber}
-                onChangeText={setNewTruckNumber}
-                autoCapitalize="characters"
-              />
-            </View>
-
-            <View style={styles.modalInputGroup}>
-              <Text style={styles.inputLabel}>TANK CAPACITY (LITERS)</Text>
-              <TextInput
-                style={styles.textInput}
-                placeholder="e.g. 250"
-                placeholderTextColor={C.textMuted}
-                value={newCapacity}
-                onChangeText={setNewCapacity}
-                keyboardType="numeric"
-              />
-            </View>
-
-            <View style={styles.modalInputGroup}>
-              <Text style={styles.inputLabel}>FUEL TYPE</Text>
-              <View style={styles.fuelToggleRow}>
-                {['DIESEL', 'PETROL'].map((type) => (
-                  <TouchableOpacity
-                    key={type}
-                    style={[styles.fuelToggleBtn, newFuelType === type && styles.fuelToggleBtnActive]}
-                    onPress={() => setNewFuelType(type)}
-                  >
-                    <Text style={[styles.fuelToggleText, newFuelType === type && styles.fuelToggleTextActive]}>
-                      {type}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
+      {/* ── MODAL: ADD TRUCK ── */}
+      <Modal visible={addTruckVisible} transparent animationType="slide">
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          style={styles.modalOverlay}
+        >
+          <View style={styles.modalCard}>
+            <View style={styles.modalHeader}>
+              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                <Ionicons name="bus" size={20} color={C.primary} style={{ marginRight: 8 }} />
+                <Text style={styles.modalTitle}>Register New Fleet Truck</Text>
               </View>
-            </View>
-
-            <View style={styles.modalBtnRow}>
-              <TouchableOpacity style={styles.modalCancelBtn} onPress={() => setAddTruckVisible(false)} disabled={submittingTruck}>
-                <Text style={styles.modalCancelText}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.modalConfirmBtn} onPress={handleCreateTruck} disabled={submittingTruck} activeOpacity={0.85}>
-                {submittingTruck ? <ActivityIndicator color={C.white} /> : <Text style={styles.modalConfirmText}>Save Truck</Text>}
+              <TouchableOpacity onPress={() => setAddTruckVisible(false)}>
+                <Ionicons name="close" size={22} color={C.textMuted} />
               </TouchableOpacity>
             </View>
-          </View>
-        </KeyboardAvoidingView>
-      </Modal>
 
-      {/* ── Modal 2: Create Driver ── */}
-      <Modal visible={createDriverVisible} transparent animationType="slide" onRequestClose={() => setCreateDriverVisible(false)}>
-        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.modalOverlay}>
-          <View style={styles.modalSheet}>
-            <View style={styles.modalHandle} />
-            <Text style={styles.modalTitle}>Add Commercial Driver</Text>
-            <Text style={styles.modalSubtitle}>System will auto-generate an 8-digit numeric password</Text>
+            <Text style={styles.modalSubtitle}>
+              Truck will be registered under your fleet account and can immediately receive fuel requests.
+            </Text>
 
-            <View style={styles.modalInputGroup}>
-              <Text style={styles.inputLabel}>DRIVER FULL NAME</Text>
-              <TextInput
-                style={styles.textInput}
-                placeholder="e.g. Deepak Verma"
-                placeholderTextColor={C.textMuted}
-                value={drvName}
-                onChangeText={setDrvName}
-              />
+            <Text style={styles.fieldLabel}>VEHICLE REGISTRATION NUMBER *</Text>
+            <TextInput
+              style={styles.modalInput}
+              placeholder="e.g. MH12AB1234"
+              value={newTruckNumber}
+              onChangeText={setNewTruckNumber}
+              autoCapitalize="characters"
+            />
+
+            <Text style={[styles.fieldLabel, { marginTop: 12 }]}>FUEL TYPE *</Text>
+            <View style={{ flexDirection: 'row', gap: 10, marginTop: 4 }}>
+              {['DIESEL', 'PETROL'].map((ft) => (
+                <TouchableOpacity
+                  key={ft}
+                  style={[styles.fuelTypeSelect, newFuelType === ft && styles.fuelTypeSelectActive]}
+                  onPress={() => setNewFuelType(ft)}
+                >
+                  <Ionicons
+                    name="water"
+                    size={16}
+                    color={newFuelType === ft ? C.white : C.textSub}
+                    style={{ marginRight: 6 }}
+                  />
+                  <Text style={[styles.fuelTypeSelectText, newFuelType === ft && styles.fuelTypeSelectTextActive]}>
+                    {ft}
+                  </Text>
+                </TouchableOpacity>
+              ))}
             </View>
 
-            <View style={styles.modalInputGroup}>
-              <Text style={styles.inputLabel}>MOBILE NUMBER (WILL BE DRIVER'S LOGIN ID)</Text>
-              <TextInput
-                style={styles.textInput}
-                placeholder="10-digit mobile number"
-                placeholderTextColor={C.textMuted}
-                value={drvMobile}
-                onChangeText={setDrvMobile}
-                keyboardType="phone-pad"
-              />
-            </View>
+            <Text style={[styles.fieldLabel, { marginTop: 12 }]}>TANK CAPACITY (LITERS) *</Text>
+            <TextInput
+              style={styles.modalInput}
+              placeholder="e.g. 250"
+              keyboardType="numeric"
+              value={newCapacity}
+              onChangeText={setNewCapacity}
+            />
 
-            <View style={styles.autoGenNote}>
-              <Ionicons name="information-circle-outline" size={16} color={C.yellow} style={{ marginRight: 6 }} />
-              <Text style={styles.autoGenNoteText}>
-                An 8-digit numeric password will be randomly generated. The driver will log in with role 'DRIVER' and mobile number.
-              </Text>
-            </View>
-
-            <View style={styles.modalBtnRow}>
-              <TouchableOpacity style={styles.modalCancelBtn} onPress={() => setCreateDriverVisible(false)} disabled={submittingDriver}>
-                <Text style={styles.modalCancelText}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={[styles.modalConfirmBtn, { backgroundColor: C.green }]} onPress={handleCreateDriver} disabled={submittingDriver} activeOpacity={0.85}>
-                {submittingDriver ? <ActivityIndicator color={C.night} /> : <Text style={[styles.modalConfirmText, { color: C.night }]}>Create Driver</Text>}
-              </TouchableOpacity>
-            </View>
-          </View>
-        </KeyboardAvoidingView>
-      </Modal>
-
-      {/* ── Modal 3: Credentials Success Display ── */}
-      <Modal visible={credModal.visible} transparent animationType="fade">
-        <View style={styles.modalBackdrop}>
-          <View style={styles.credCard}>
-            <View style={styles.credIconWrap}>
-              <Ionicons name="key" size={32} color={C.yellow} />
-            </View>
-            <Text style={styles.credTitle}>{credModal.title}</Text>
-            <Text style={styles.credNote}>{credModal.note}</Text>
-
-            <View style={styles.credBox}>
-              <View style={styles.credRow}>
-                <Text style={styles.credLabel}>LOGIN MOBILE ID:</Text>
-                <Text style={styles.credVal}>{credModal.username}</Text>
-              </View>
-              {credModal.password && (
-                <View style={[styles.credRow, { marginTop: 10 }]}>
-                  <Text style={styles.credLabel}>8-DIGIT NUMERIC PASSWORD:</Text>
-                  <Text style={[styles.credVal, { color: C.yellow, fontSize: 16 }]}>{credModal.password}</Text>
-                </View>
+            <TouchableOpacity
+              style={[styles.modalSubmitBtn, submittingTruck && { opacity: 0.7 }]}
+              onPress={handleCreateTruck}
+              disabled={submittingTruck}
+            >
+              {submittingTruck ? (
+                <ActivityIndicator color={C.white} />
+              ) : (
+                <Text style={styles.modalSubmitBtnText}>Register Truck to Fleet</Text>
               )}
-            </View>
-
-            <TouchableOpacity style={styles.credOkBtn} onPress={() => setCredModal({ ...credModal, visible: false })}>
-              <Text style={styles.credOkBtnText}>Share & Done</Text>
             </TouchableOpacity>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
 
-      {/* ── Modal 4: Assign Driver to Truck ── */}
-      <Modal visible={assignModalVisible} transparent animationType="slide" onRequestClose={closeAssignModal}>
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalSheet}>
-            <View style={styles.modalHandle} />
-            <Text style={styles.modalTitle}>Assign Driver to Truck</Text>
-            <Text style={styles.modalSubtitle}>Vehicle: {selectedTruck?.truck_number}</Text>
+      {/* ── MODAL: EDIT TRUCK ── */}
+      <Modal visible={editTruckVisible} transparent animationType="slide">
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          style={styles.modalOverlay}
+        >
+          <View style={styles.modalCard}>
+            <View style={styles.modalHeader}>
+              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                <Ionicons name="pencil" size={20} color={C.primary} style={{ marginRight: 8 }} />
+                <Text style={styles.modalTitle}>Edit Truck {editingTruck?.truck_number}</Text>
+              </View>
+              <TouchableOpacity onPress={() => setEditTruckVisible(false)}>
+                <Ionicons name="close" size={22} color={C.textMuted} />
+              </TouchableOpacity>
+            </View>
 
-            <ScrollView style={{ maxHeight: 260, marginVertical: 12 }}>
-              {drivers.filter((d: any) => d.is_active !== false).length === 0 ? (
-                <Text style={{ color: C.textSub, textAlign: 'center', marginVertical: 20 }}>
-                  No active drivers available. Activate a driver or add a new driver first!
-                </Text>
+            <Text style={styles.fieldLabel}>FUEL TYPE</Text>
+            <View style={{ flexDirection: 'row', gap: 10, marginTop: 4 }}>
+              {['DIESEL', 'PETROL'].map((ft) => (
+                <TouchableOpacity
+                  key={ft}
+                  style={[styles.fuelTypeSelect, editFuelType === ft && styles.fuelTypeSelectActive]}
+                  onPress={() => setEditFuelType(ft)}
+                >
+                  <Text style={[styles.fuelTypeSelectText, editFuelType === ft && styles.fuelTypeSelectTextActive]}>
+                    {ft}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            <Text style={[styles.fieldLabel, { marginTop: 12 }]}>TANK CAPACITY (LITERS)</Text>
+            <TextInput
+              style={styles.modalInput}
+              keyboardType="numeric"
+              value={editCapacity}
+              onChangeText={setEditCapacity}
+            />
+
+            <Text style={[styles.fieldLabel, { marginTop: 12 }]}>TRUCK STATUS</Text>
+            <View style={{ flexDirection: 'row', gap: 10, marginTop: 4 }}>
+              <TouchableOpacity
+                style={[styles.fuelTypeSelect, editIsActive && { backgroundColor: C.green, borderColor: C.green }]}
+                onPress={() => setEditIsActive(true)}
+              >
+                <Text style={[styles.fuelTypeSelectText, editIsActive && { color: C.white }]}>Active Fleet</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.fuelTypeSelect, !editIsActive && { backgroundColor: C.red, borderColor: C.red }]}
+                onPress={() => setEditIsActive(false)}
+              >
+                <Text style={[styles.fuelTypeSelectText, !editIsActive && { color: C.white }]}>Inactive</Text>
+              </TouchableOpacity>
+            </View>
+
+            <TouchableOpacity
+              style={[styles.modalSubmitBtn, updatingTruck && { opacity: 0.7 }]}
+              onPress={handleUpdateTruck}
+              disabled={updatingTruck}
+            >
+              {updatingTruck ? (
+                <ActivityIndicator color={C.white} />
               ) : (
-                drivers.filter((d: any) => d.is_active !== false).map((drv) => (
-                  <TouchableOpacity
-                    key={drv.id}
-                    style={styles.driverSelectItem}
-                    onPress={() => handleAssignDriver(drv.id)}
-                    disabled={assigningDriverId === drv.id}
-                  >
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.driverSelectName}>{drv.full_name || drv.first_name}</Text>
-                      <Text style={styles.driverSelectMobile}>{drv.mobile_number}</Text>
-                    </View>
-                    {assigningDriverId === drv.id ? (
-                      <ActivityIndicator size="small" color={C.neon} />
-                    ) : (
-                      <Text style={styles.driverSelectAction}>Select</Text>
-                    )}
-                  </TouchableOpacity>
-                ))
+                <Text style={styles.modalSubmitBtnText}>Save Changes</Text>
               )}
+            </TouchableOpacity>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
+
+      {/* ── MODAL: BULK REQUEST PRE-SUBMISSION REVIEW ── */}
+      <Modal visible={bulkReviewModal} transparent animationType="slide">
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalCard, { maxHeight: '85%' }]}>
+            <View style={styles.modalHeader}>
+              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                <Ionicons name="shield-checkmark" size={22} color={C.primary} style={{ marginRight: 8 }} />
+                <Text style={styles.modalTitle}>Confirm Bulk Request</Text>
+              </View>
+              <TouchableOpacity onPress={() => setBulkReviewModal(false)}>
+                <Ionicons name="close" size={22} color={C.textMuted} />
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.summaryBanner}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.summarySub}>SELECTED STATION</Text>
+                <Text style={styles.summaryVal}>{selectedPumpName}</Text>
+              </View>
+              <View style={{ alignItems: 'flex-end' }}>
+                <Text style={styles.summarySub}>TOTAL VOLUME</Text>
+                <Text style={[styles.summaryVal, { color: C.primary, fontSize: 18 }]}>
+                  {totalSelectedLiters.toLocaleString()} L
+                </Text>
+              </View>
+            </View>
+
+            <Text style={[styles.fieldLabel, { marginVertical: 8 }]}>SELECTED TRUCKS BREAKDOWN</Text>
+
+            <ScrollView style={{ maxHeight: 220 }}>
+              {selectedTruckIds.map((tId, idx) => {
+                const trk = trucks.find((t) => t.id === tId);
+                const ltr = truckLiters[tId] || trk?.capacity_liters;
+                return (
+                  <View key={tId} style={styles.reviewTruckItem}>
+                    <Text style={styles.reviewIdx}>{idx + 1}.</Text>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.reviewPlate}>{trk?.truck_number}</Text>
+                      <Text style={styles.reviewSub}>{trk?.fuel_type} · Max {trk?.capacity_liters}L</Text>
+                    </View>
+                    <View style={{ alignItems: 'flex-end' }}>
+                      <Text style={styles.reviewLiters}>{ltr} Liters</Text>
+                      {truckRemarks[tId] ? (
+                        <Text style={styles.reviewRemarks} numberOfLines={1}>{truckRemarks[tId]}</Text>
+                      ) : null}
+                    </View>
+                  </View>
+                );
+              })}
             </ScrollView>
 
-            <TouchableOpacity style={styles.modalCancelBtn} onPress={closeAssignModal}>
-              <Text style={styles.modalCancelText}>Close</Text>
+            <TouchableOpacity
+              style={[styles.modalSubmitBtn, submittingBulk && { opacity: 0.7 }]}
+              onPress={handleSubmitBulkRequests}
+              disabled={submittingBulk}
+            >
+              {submittingBulk ? (
+                <ActivityIndicator color={C.white} />
+              ) : (
+                <Text style={styles.modalSubmitBtnText}>
+                  Confirm & Submit {selectedTruckIds.length} Request(s)
+                </Text>
+              )}
             </TouchableOpacity>
           </View>
         </View>
@@ -840,202 +1155,787 @@ export default function CustomerScreen() {
   );
 }
 
+// ── STYLES ───────────────────────────────────────────────────
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: C.night },
-  headerContainer: { backgroundColor: C.white, borderBottomWidth: 1, borderBottomColor: C.nightBorder },
-  neonBar: { height: 3, backgroundColor: C.neon },
-  headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', paddingHorizontal: 20, paddingTop: 16, paddingBottom: 18 },
-  rolePill: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#E0F2FE', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3, borderWidth: 1, borderColor: '#BAE6FD', marginBottom: 6, alignSelf: 'flex-start' },
-  rolePillText: { fontSize: 10, fontWeight: '800', color: C.primary, letterSpacing: 1.5 },
-  headerName: { fontSize: 22, fontWeight: '800', color: C.text },
-  headerSub: { fontSize: 12, color: C.textSub, marginTop: 2 },
-  avatarBtn: {},
-  avatar: { width: 46, height: 46, borderRadius: 23, backgroundColor: '#E0F2FE', borderWidth: 2, borderColor: '#38BDF8', justifyContent: 'center', alignItems: 'center' },
-  avatarText: { fontSize: 20, fontWeight: '800', color: C.primary },
-  scrollContent: { padding: 16, paddingBottom: 50 },
-  statsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 14 },
-  statCard: { flex: 1, minWidth: '45%', backgroundColor: C.white, borderRadius: 14, padding: 14, borderWidth: 1, borderColor: C.nightBorder, shadowColor: '#64748B', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.06, shadowRadius: 6, elevation: 2 },
-  statIcon: { width: 36, height: 36, borderRadius: 18, justifyContent: 'center', alignItems: 'center', marginBottom: 8 },
-  statVal: { fontSize: 24, fontWeight: '900', color: C.text, marginBottom: 2 },
-  statLabel: { fontSize: 11, color: C.textSub, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5 },
-  actionRow: { flexDirection: 'row', gap: 10, marginBottom: 16 },
-  actionBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 12, borderRadius: 12, borderWidth: 1 },
-  actionBtnText: { fontSize: 13, fontWeight: '800', letterSpacing: 0.5 },
-  tabBar: { flexDirection: 'row', backgroundColor: '#F1F5F9', borderRadius: 12, padding: 4, marginBottom: 16, borderWidth: 1, borderColor: C.nightBorder },
-  tabItem: { flex: 1, flexDirection: 'row', paddingVertical: 10, alignItems: 'center', justifyContent: 'center', borderRadius: 9 },
-  tabItemActive: { backgroundColor: C.primary },
-  tabText: { fontSize: 11, fontWeight: '700', color: C.textMuted },
-  tabTextActive: { color: C.white },
-  centerBox: { padding: 40, alignItems: 'center' },
-  emptyCard: { backgroundColor: C.white, borderRadius: 16, padding: 36, alignItems: 'center', borderWidth: 1, borderColor: C.nightBorder },
-  emptyTitle: { fontSize: 16, fontWeight: '800', color: C.text, marginTop: 12, marginBottom: 4 },
-  emptySubtitle: { fontSize: 12, color: C.textSub, textAlign: 'center', lineHeight: 18 },
-  truckCard: { backgroundColor: C.white, borderRadius: 16, padding: 16, marginBottom: 12, borderWidth: 1, borderColor: C.nightBorder, overflow: 'hidden', shadowColor: '#64748B', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 4, elevation: 2 },
-  truckAccent: { position: 'absolute', top: 0, left: 0, right: 0, height: 3 },
-  truckHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
-  plateBox: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FFFDE7', borderRadius: 6, borderWidth: 1.5, borderColor: '#0B1220', overflow: 'hidden' },
-  plateBlue: { backgroundColor: '#0284C7', paddingHorizontal: 5, paddingVertical: 4 },
-  plateBlueTxt: { color: C.white, fontSize: 8, fontWeight: '800' },
-  plateNum: { color: '#0B1220', fontWeight: '900', fontSize: 14, letterSpacing: 1.5, paddingHorizontal: 8 },
-  fuelBadge: { flexDirection: 'row', alignItems: 'center', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 4, borderWidth: 1 },
-  fuelBadgeText: { fontSize: 11, fontWeight: '800' },
-  driverSection: { borderTopWidth: 1, borderTopColor: C.nightBorder, paddingTop: 10 },
-  driverRow: { flexDirection: 'row', alignItems: 'center' },
-  driverAvatar: { width: 32, height: 32, borderRadius: 16, backgroundColor: '#DCFCE7', borderWidth: 1, borderColor: '#86EFAC', justifyContent: 'center', alignItems: 'center', marginRight: 10 },
-  driverLabel: { fontSize: 10, color: C.textSub, fontWeight: '700', textTransform: 'uppercase' },
-  driverName: { fontSize: 13, color: C.text, fontWeight: '700' },
-  changeDrvBtn: { backgroundColor: '#E0F2FE', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8, borderWidth: 1, borderColor: '#BAE6FD' },
-  changeDrvText: { color: C.primary, fontWeight: '700', fontSize: 12 },
-  driverCardHeader: { flexDirection: 'row', alignItems: 'center' },
-  driverAvatarWrap: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#DCFCE7', borderWidth: 1.5, borderColor: C.green, justifyContent: 'center', alignItems: 'center', marginRight: 12 },
-  driverAvatarTxt: { fontSize: 16, fontWeight: '800', color: C.green },
-  driverHeaderName: { fontSize: 15, fontWeight: '800', color: C.text },
-  driverHeaderPhone: { fontSize: 12, color: C.textSub, marginTop: 2 },
-  assignedStatusBadge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, borderWidth: 1 },
-  assignedStatusTxt: { fontSize: 11, fontWeight: '800' },
-  reqCard: { backgroundColor: C.white, borderRadius: 14, padding: 14, marginBottom: 10, borderWidth: 1, borderColor: C.nightBorder, shadowColor: '#64748B', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 4, elevation: 2 },
-  reqCardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 },
-  reqNumber: { fontSize: 14, fontWeight: '800', color: C.text },
-  reqTruckPlate: { fontSize: 12, color: C.primary, fontWeight: '700', marginTop: 1 },
-  reqStatusBadge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
-  reqStatusText: { fontSize: 11, fontWeight: '800' },
-  reqDetailsRow: { flexDirection: 'row', backgroundColor: '#F8FAFC', borderRadius: 8, padding: 10, marginBottom: 10 },
-  reqDetailItem: { flex: 1 },
-  reqDetailLabel: { fontSize: 10, color: C.textSub, textTransform: 'uppercase', fontWeight: '700' },
-  reqDetailVal: { fontSize: 13, color: C.text, fontWeight: '800', marginTop: 2 },
-  reqFooter: { flexDirection: 'row', alignItems: 'center' },
-  reqFooterText: { fontSize: 11, color: C.textSub },
-  reqFooterDot: { color: C.textMuted, marginHorizontal: 6, fontSize: 10 },
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(15,23,42,0.5)', justifyContent: 'flex-end' },
-  modalSheet: { backgroundColor: C.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 22, borderWidth: 1, borderColor: C.nightBorder },
-  modalHandle: { width: 40, height: 4, borderRadius: 2, backgroundColor: '#CBD5E1', alignSelf: 'center', marginBottom: 14 },
-  modalTitle: { fontSize: 19, fontWeight: '800', color: C.text, textAlign: 'center' },
-  modalSubtitle: { fontSize: 12, color: C.textSub, textAlign: 'center', marginTop: 3, marginBottom: 16 },
-  modalInputGroup: { marginBottom: 12 },
-  inputLabel: { fontSize: 10, fontWeight: '800', color: C.textSub, letterSpacing: 0.8, marginBottom: 5 },
-  textInput: { backgroundColor: '#F8FAFC', borderRadius: 10, paddingHorizontal: 12, height: 46, color: C.text, fontSize: 14, borderWidth: 1, borderColor: C.nightBorder },
-  fuelToggleRow: { flexDirection: 'row', gap: 10 },
-  fuelToggleBtn: { flex: 1, paddingVertical: 10, borderRadius: 8, backgroundColor: '#F1F5F9', borderWidth: 1, borderColor: C.nightBorder, alignItems: 'center' },
-  fuelToggleBtnActive: { backgroundColor: C.primary, borderColor: C.primary },
-  fuelToggleText: { fontSize: 12, fontWeight: '700', color: C.textSub },
-  fuelToggleTextActive: { color: C.white, fontWeight: '800' },
-  autoGenNote: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FEF3C7', padding: 10, borderRadius: 8, borderWidth: 1, borderColor: '#FDE68A', marginBottom: 16 },
-  autoGenNoteText: { fontSize: 11, color: C.yellow, flex: 1, lineHeight: 16, fontWeight: '600' },
-  modalBtnRow: { flexDirection: 'row', gap: 10, marginTop: 8 },
-  modalCancelBtn: { flex: 1, paddingVertical: 14, borderRadius: 10, backgroundColor: '#F1F5F9', alignItems: 'center', borderWidth: 1, borderColor: C.nightBorder },
-  modalCancelText: { color: C.textSub, fontWeight: '700', fontSize: 14 },
-  modalConfirmBtn: { flex: 1.5, paddingVertical: 14, borderRadius: 10, backgroundColor: C.primary, alignItems: 'center', justifyContent: 'center' },
-  modalConfirmText: { color: C.white, fontWeight: '800', fontSize: 14 },
-  modalBackdrop: { flex: 1, backgroundColor: 'rgba(15,23,42,0.6)', justifyContent: 'center', alignItems: 'center', padding: 20 },
-  credCard: { backgroundColor: C.white, borderRadius: 20, padding: 22, width: '100%', maxWidth: 380, borderWidth: 1, borderColor: C.nightBorder, alignItems: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.15, shadowRadius: 16, elevation: 8 },
-  credIconWrap: { width: 56, height: 56, borderRadius: 28, backgroundColor: '#FEF3C7', borderWidth: 1, borderColor: '#FDE68A', justifyContent: 'center', alignItems: 'center', marginBottom: 12 },
-  credTitle: { fontSize: 17, fontWeight: '800', color: C.text, textAlign: 'center', marginBottom: 6 },
-  credNote: { fontSize: 12, color: C.textSub, textAlign: 'center', lineHeight: 17, marginBottom: 16 },
-  credBox: { width: '100%', backgroundColor: '#F8FAFC', borderRadius: 10, padding: 14, borderWidth: 1, borderColor: C.nightBorder, marginBottom: 18 },
-  credRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  credLabel: { fontSize: 11, color: C.textMuted, fontWeight: '700' },
-  credVal: { fontSize: 14, color: C.primary, fontWeight: '800', letterSpacing: 0.5 },
-  credOkBtn: { backgroundColor: C.primary, borderRadius: 10, paddingVertical: 12, paddingHorizontal: 36, width: '100%', alignItems: 'center' },
-  credOkBtnText: { color: C.white, fontSize: 14, fontWeight: '800' },
-  driverSelectItem: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#F8FAFC', padding: 12, borderRadius: 10, marginBottom: 8, borderWidth: 1, borderColor: C.nightBorder },
-  driverSelectName: { fontSize: 14, fontWeight: '700', color: C.text },
-  driverSelectMobile: { fontSize: 11, color: C.textSub, marginTop: 2 },
-  driverSelectAction: { fontSize: 12, fontWeight: '800', color: C.primary },
-  driverEmpId: { fontSize: 11, color: C.textMuted, fontWeight: '600', marginTop: 1 },
-  statusPill: {
+  container: {
+    flex: 1,
+    backgroundColor: '#F8FAFC',
+  },
+  headerContainer: {
+    backgroundColor: '#FFFFFF',
+    paddingTop: Platform.OS === 'ios' ? 44 : StatusBar.currentHeight || 20,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E2E8F0',
+  },
+  neonBar: {
+    height: 3,
+    backgroundColor: C.primary,
+  },
+  headerRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  rolePill: {
     flexDirection: 'row',
     alignItems: 'center',
+    backgroundColor: '#E0F2FE',
     paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 8,
-    borderWidth: 1,
+    paddingVertical: 3,
+    borderRadius: 6,
+    alignSelf: 'flex-start',
+    marginBottom: 4,
   },
-  activePillBg: {
-    backgroundColor: '#DCFCE7',
-    borderColor: '#86EFAC',
-  },
-  inactivePillBg: {
-    backgroundColor: '#FEE2E2',
-    borderColor: '#FECACA',
-  },
-  statusDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    marginRight: 4,
-  },
-  activeDotBg: {
-    backgroundColor: C.green,
-  },
-  inactiveDotBg: {
-    backgroundColor: C.red,
-  },
-  statusPillText: {
+  rolePillText: {
+    color: C.primary,
     fontSize: 10,
     fontWeight: '800',
     letterSpacing: 0.5,
   },
-  activePillText: {
-    color: '#15803D',
+  headerName: {
+    color: '#0F172A',
+    fontSize: 20,
+    fontWeight: '800',
+    letterSpacing: -0.3,
   },
-  inactivePillText: {
-    color: '#B91C1C',
-  },
-  drvCredContainer: {
-    backgroundColor: '#F8FAFC',
-    borderRadius: 10,
-    padding: 10,
-    marginVertical: 10,
-    borderWidth: 1,
-    borderColor: C.nightBorder,
-  },
-  drvCredRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  drvCredLabel: {
+  headerSub: {
+    color: '#64748B',
     fontSize: 11,
-    color: C.textSub,
-    fontWeight: '700',
+    marginTop: 1,
   },
-  drvCredVal: {
-    fontSize: 12,
-    color: C.text,
+  avatarBtn: {
+    padding: 2,
+  },
+  avatar: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: C.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  avatarText: {
+    color: '#FFFFFF',
+    fontSize: 18,
     fontWeight: '800',
   },
-  cardActionRow: {
-    flexDirection: 'row',
-    gap: 8,
-    marginTop: 2,
-    paddingTop: 8,
-    borderTopWidth: 1,
-    borderTopColor: C.nightBorder,
+  scrollContent: {
+    padding: 16,
+    paddingBottom: 40,
   },
-  drvActionBtn: {
+  statsGrid: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 16,
+  },
+  statCard: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 14,
+    padding: 10,
+    marginHorizontal: 3,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
+  },
+  statIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 6,
+  },
+  statVal: {
+    fontSize: 18,
+    fontWeight: '800',
+  },
+  statLabel: {
+    fontSize: 10,
+    color: '#64748B',
+    fontWeight: '600',
+    marginTop: 2,
+    textAlign: 'center',
+  },
+  actionRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginBottom: 16,
+  },
+  actionBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  actionBtnText: {
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  tabBar: {
+    flexDirection: 'row',
+    backgroundColor: '#E2E8F0',
+    borderRadius: 12,
+    padding: 3,
+    marginBottom: 16,
+  },
+  tabItem: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 8,
-    paddingHorizontal: 10,
-    borderRadius: 8,
+    borderRadius: 9,
+  },
+  tabItemActive: {
+    backgroundColor: C.primary,
+  },
+  tabText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#64748B',
+  },
+  tabTextActive: {
+    color: '#FFFFFF',
+    fontWeight: '700',
+  },
+  centerBox: {
+    paddingVertical: 40,
+    alignItems: 'center',
+  },
+  emptyCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 30,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  emptyTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#0F172A',
+    marginTop: 10,
+  },
+  emptySubtitle: {
+    fontSize: 12,
+    color: '#64748B',
+    textAlign: 'center',
+    marginTop: 4,
+  },
+  truckCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 14,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    overflow: 'hidden',
+    position: 'relative',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 3,
+    elevation: 1,
+  },
+  truckAccent: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 3,
+  },
+  truckHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 4,
+  },
+  plateBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1.5,
+    borderColor: '#0F172A',
+    borderRadius: 6,
+    overflow: 'hidden',
+  },
+  plateBlue: {
+    backgroundColor: '#1E3A8A',
+    paddingHorizontal: 4,
+    paddingVertical: 4,
+  },
+  plateBlueTxt: {
+    color: '#FFFFFF',
+    fontSize: 8,
+    fontWeight: '900',
+  },
+  plateNum: {
+    color: '#0F172A',
+    fontSize: 14,
+    fontWeight: '900',
+    paddingHorizontal: 8,
+    letterSpacing: 1,
+  },
+  fuelBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
     borderWidth: 1,
   },
-  activateBtn: {
-    backgroundColor: '#DCFCE7',
-    borderColor: '#86EFAC',
-  },
-  deactivateBtn: {
-    backgroundColor: '#FEF3C7',
-    borderColor: '#FDE68A',
-  },
-  deleteBtn: {
-    backgroundColor: '#FEE2E2',
-    borderColor: '#FECACA',
-  },
-  drvActionBtnText: {
+  fuelBadgeText: {
     fontSize: 11,
+    fontWeight: '700',
+  },
+  statusRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 12,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: '#F1F5F9',
+  },
+  dot: {
+    width: 7,
+    height: 7,
+    borderRadius: 3.5,
+    marginRight: 6,
+  },
+  statusText: {
+    fontSize: 11,
+    color: '#475569',
+    fontWeight: '600',
+  },
+  eligiblePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: C.greenLight,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 12,
+  },
+  eligiblePillText: {
+    color: C.green,
+    fontSize: 10,
+    fontWeight: '700',
+  },
+  ineligiblePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: C.yellowLight,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 12,
+  },
+  ineligiblePillText: {
+    color: C.yellow,
+    fontSize: 10,
+    fontWeight: '700',
+  },
+  cardActionsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 12,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: '#F1F5F9',
+  },
+  requestQuickBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: C.primary,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+  },
+  requestQuickText: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  viewReqBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: C.yellowLight,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+  },
+  viewReqText: {
+    color: C.yellow,
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  actionIconBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#F8FAFC',
+  },
+  // Bulk tab styles
+  sectionCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 14,
+    padding: 12,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  fieldLabel: {
+    fontSize: 10,
     fontWeight: '800',
+    color: '#64748B',
+    letterSpacing: 0.5,
+  },
+  pumpChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#BAE6FD',
+    backgroundColor: '#F0F9FF',
+    marginRight: 8,
+  },
+  pumpChipSelected: {
+    backgroundColor: C.primary,
+    borderColor: C.primary,
+  },
+  pumpChipText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: C.primary,
+  },
+  pumpChipTextSelected: {
+    color: '#FFFFFF',
+  },
+  selectionBar: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  selectionCount: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#0F172A',
+  },
+  selectionLiters: {
+    fontSize: 11,
+    color: C.primary,
+    fontWeight: '700',
+    marginTop: 2,
+  },
+  selBtn: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    backgroundColor: '#E0F2FE',
+  },
+  selBtnText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: C.primary,
+  },
+  bulkTruckCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 10,
+    borderWidth: 1.5,
+    borderColor: '#E2E8F0',
+  },
+  bulkTruckCardSelected: {
+    borderColor: C.primary,
+    backgroundColor: '#F0F9FF',
+  },
+  bulkTruckCardDisabled: {
+    opacity: 0.6,
+    backgroundColor: '#F8FAFC',
+  },
+  bulkTopRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  checkbox: {
+    width: 22,
+    height: 22,
+    borderRadius: 6,
+    borderWidth: 1.5,
+    borderColor: '#94A3B8',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FFFFFF',
+  },
+  checkboxSelected: {
+    backgroundColor: C.primary,
+    borderColor: C.primary,
+  },
+  checkboxDisabled: {
+    backgroundColor: '#E2E8F0',
+    borderColor: '#CBD5E1',
+  },
+  plateBoxSm: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#0F172A',
+    borderRadius: 4,
+    overflow: 'hidden',
+  },
+  plateBlueSm: {
+    backgroundColor: '#1E3A8A',
+    paddingHorizontal: 3,
+    paddingVertical: 2,
+  },
+  plateBlueTxtSm: {
+    color: '#FFFFFF',
+    fontSize: 7,
+    fontWeight: '900',
+  },
+  plateNumSm: {
+    color: '#0F172A',
+    fontSize: 12,
+    fontWeight: '900',
+    paddingHorizontal: 6,
+    letterSpacing: 0.5,
+  },
+  fuelSubText: {
+    fontSize: 10,
+    color: '#64748B',
+    marginTop: 2,
+  },
+  eligiblePillSm: {
+    backgroundColor: C.greenLight,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  eligiblePillTextSm: {
+    color: C.green,
+    fontSize: 10,
+    fontWeight: '700',
+  },
+  ineligiblePillSm: {
+    backgroundColor: C.yellowLight,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  ineligiblePillTextSm: {
+    color: C.yellow,
+    fontSize: 9,
+    fontWeight: '700',
+  },
+  selectedInputsRow: {
+    flexDirection: 'row',
+    marginTop: 10,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: '#E2E8F0',
+  },
+  inputLabelSm: {
+    fontSize: 9,
+    fontWeight: '700',
+    color: '#64748B',
+    marginBottom: 4,
+  },
+  inputSm: {
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    fontSize: 12,
+    color: '#0F172A',
+  },
+  submitBulkBtn: {
+    backgroundColor: C.green,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 14,
+    borderRadius: 14,
+    marginTop: 10,
+    shadowColor: C.green,
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.25,
+    shadowRadius: 5,
+    elevation: 3,
+  },
+  submitBulkBtnText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  // Requests tab styles
+  filterChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    marginRight: 6,
+  },
+  filterChipActive: {
+    backgroundColor: C.primary,
+    borderColor: C.primary,
+  },
+  filterChipText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#64748B',
+  },
+  filterChipTextActive: {
+    color: '#FFFFFF',
+  },
+  requestCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 14,
+    padding: 12,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  reqTopRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+  },
+  reqNum: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#0F172A',
+    fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
+  },
+  reqDate: {
+    fontSize: 10,
+    color: '#64748B',
+    marginTop: 2,
+  },
+  statusBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+  },
+  statusBadgeText: {
+    fontSize: 10,
+    fontWeight: '800',
+  },
+  reqDivider: {
+    height: 1,
+    backgroundColor: '#F1F5F9',
+    marginVertical: 8,
+  },
+  reqDetailsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  reqDetailLabel: {
+    fontSize: 8,
+    fontWeight: '800',
+    color: '#94A3B8',
+    marginBottom: 3,
+  },
+  reqVolume: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: C.primary,
+  },
+  reqStation: {
+    fontSize: 11,
+    color: '#334155',
+    fontWeight: '600',
+  },
+  remarksRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F8FAFC',
+    padding: 6,
+    borderRadius: 6,
+    marginTop: 8,
+  },
+  remarksText: {
+    fontSize: 10,
+    color: '#64748B',
+    fontStyle: 'italic',
+  },
+  cancelReqBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+    backgroundColor: C.redLight,
+  },
+  cancelReqText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: C.red,
+  },
+  // Modal styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  modalCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    padding: 20,
+    width: '100%',
+    maxWidth: 480,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 10,
+    elevation: 5,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  modalTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#0F172A',
+  },
+  modalSubtitle: {
+    fontSize: 12,
+    color: '#64748B',
+    marginBottom: 14,
+  },
+  modalInput: {
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 14,
+    color: '#0F172A',
+    marginTop: 4,
+  },
+  fuelTypeSelect: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+    backgroundColor: '#F8FAFC',
+  },
+  fuelTypeSelectActive: {
+    backgroundColor: C.primary,
+    borderColor: C.primary,
+  },
+  fuelTypeSelectText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#475569',
+  },
+  fuelTypeSelectTextActive: {
+    color: '#FFFFFF',
+  },
+  modalSubmitBtn: {
+    backgroundColor: C.primary,
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: 'center',
+    marginTop: 18,
+  },
+  modalSubmitBtnText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  // Review modal specific
+  summaryBanner: {
+    flexDirection: 'row',
+    backgroundColor: '#F0F9FF',
+    borderWidth: 1,
+    borderColor: '#BAE6FD',
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 8,
+  },
+  summarySub: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: '#0369A1',
+    marginBottom: 2,
+  },
+  summaryVal: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#0F172A',
+  },
+  reviewTruckItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F5F9',
+  },
+  reviewIdx: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#94A3B8',
+    width: 22,
+  },
+  reviewPlate: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#0F172A',
+  },
+  reviewSub: {
+    fontSize: 10,
+    color: '#64748B',
+  },
+  reviewLiters: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: C.primary,
+  },
+  reviewRemarks: {
+    fontSize: 9,
+    color: '#94A3B8',
+    maxWidth: 100,
   },
 });

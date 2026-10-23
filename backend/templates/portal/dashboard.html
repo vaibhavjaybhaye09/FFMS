@@ -197,7 +197,7 @@
                                         <span class="ind-blue">IND</span>
                                         <span class="plate-text">{{ req.truck.truck_number }}</span>
                                     </div>
-                                    <div class="text-[10px] text-slate-500 mt-0.5">Driver: {% firstof req.driver.first_name req.driver.mobile_number %}</div>
+                                    <div class="text-[10px] text-slate-500 mt-0.5">Owner: {% firstof req.truck.customer.first_name req.truck.customer.username req.created_by.first_name "Fleet Owner" %}</div>
                                 </td>
                                 <td class="py-3">
                                     <span class="font-semibold text-slate-800">{% firstof req.operator.first_name req.operator.username "Unassigned" %}</span>
